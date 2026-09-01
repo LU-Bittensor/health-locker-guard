@@ -78,7 +78,7 @@ function Vault() {
 
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [kind, setKind] = useState(recordTypes[0]);
+  const [kind, setKind] = useState<string>(recordTypes[0]!);
   const [date, setDate] = useState("2025-01-14");
   const [tags, setTags] = useState("cardio, fasting");
   const inputRef = useRef<HTMLInputElement>(null);
