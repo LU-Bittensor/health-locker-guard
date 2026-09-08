@@ -54,11 +54,16 @@ export function Vault({
   showLedger = true,
   roleLabel = "Patient",
   initials = "RM",
+  patientName,
+  backTo,
 }: {
   showLedger?: boolean;
   roleLabel?: string;
   initials?: string;
+  patientName?: string;
+  backTo?: "/provider";
 }) {
+
   const [records, setRecords] = useState<RecordItem[]>(initialRecords);
   const [grants, setGrants] = useState<Grant[]>(initialGrants);
   const [selected, setSelected] = useState("r2");
@@ -143,6 +148,21 @@ export function Vault({
                 {roleLabel}
               </span>
             </div>
+            {backTo && (
+              <Link
+                to={backTo}
+                className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
+              >
+                ← All patients
+              </Link>
+            )}
+            {patientName && (
+              <span className="text-[13px] font-medium">
+                <span className="text-mut">Viewing </span>
+                {patientName}
+              </span>
+            )}
+
             <nav className="ml-4 flex items-center gap-1 text-[13px]">
               {sections.map((s) => (
                 <button

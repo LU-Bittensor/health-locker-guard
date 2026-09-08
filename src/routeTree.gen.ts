@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProviderRouteImport } from './routes/provider'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as ProviderIndexRouteImport } from './routes/provider.index'
+import { Route as ProviderPatientIdRouteImport } from './routes/provider.$patientId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,34 +30,56 @@ const SigninRoute = SigninRouteImport.update({
   path: '/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProviderIndexRoute = ProviderIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ProviderRoute,
+} as any)
+const ProviderPatientIdRoute = ProviderPatientIdRouteImport.update({
+  id: '/$patientId',
+  path: '/$patientId',
+  getParentRoute: () => ProviderRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/provider': typeof ProviderRoute
+  '/provider': typeof ProviderRouteWithChildren
   '/signin': typeof SigninRoute
+  '/provider/$patientId': typeof ProviderPatientIdRoute
+  '/provider/': typeof ProviderIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/provider': typeof ProviderRoute
   '/signin': typeof SigninRoute
+  '/provider/$patientId': typeof ProviderPatientIdRoute
+  '/provider': typeof ProviderIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/provider': typeof ProviderRoute
+  '/provider': typeof ProviderRouteWithChildren
   '/signin': typeof SigninRoute
+  '/provider/$patientId': typeof ProviderPatientIdRoute
+  '/provider/': typeof ProviderIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/provider' | '/signin'
+  fullPaths:
+    '/' | '/provider' | '/signin' | '/provider/$patientId' | '/provider/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/provider' | '/signin'
-  id: '__root__' | '/' | '/provider' | '/signin'
+  to: '/' | '/signin' | '/provider/$patientId' | '/provider'
+  id:
+    | '__root__'
+    | '/'
+    | '/provider'
+    | '/signin'
+    | '/provider/$patientId'
+    | '/provider/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ProviderRoute: typeof ProviderRoute
+  ProviderRoute: typeof ProviderRouteWithChildren
   SigninRoute: typeof SigninRoute
 }
 
@@ -82,12 +106,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SigninRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/provider/': {
+      id: '/provider/'
+      path: '/'
+      fullPath: '/provider/'
+      preLoaderRoute: typeof ProviderIndexRouteImport
+      parentRoute: typeof ProviderRoute
+    }
+    '/provider/$patientId': {
+      id: '/provider/$patientId'
+      path: '/$patientId'
+      fullPath: '/provider/$patientId'
+      preLoaderRoute: typeof ProviderPatientIdRouteImport
+      parentRoute: typeof ProviderRoute
+    }
   }
 }
 
+interface ProviderRouteChildren {
+  ProviderPatientIdRoute: typeof ProviderPatientIdRoute
+  ProviderIndexRoute: typeof ProviderIndexRoute
+}
+
+const ProviderRouteChildren: ProviderRouteChildren = {
+  ProviderPatientIdRoute: ProviderPatientIdRoute,
+  ProviderIndexRoute: ProviderIndexRoute,
+}
+
+const ProviderRouteWithChildren = ProviderRoute._addFileChildren(
+  ProviderRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ProviderRoute: ProviderRoute,
+  ProviderRoute: ProviderRouteWithChildren,
   SigninRoute: SigninRoute,
 }
 export const routeTree = rootRouteImport
