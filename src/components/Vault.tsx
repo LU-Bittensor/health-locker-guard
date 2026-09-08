@@ -54,11 +54,16 @@ export function Vault({
   showLedger = true,
   roleLabel = "Patient",
   initials = "RM",
+  patientName,
+  backTo,
 }: {
   showLedger?: boolean;
   roleLabel?: string;
   initials?: string;
+  patientName?: string;
+  backTo?: "/provider";
 }) {
+
   const [records, setRecords] = useState<RecordItem[]>(initialRecords);
   const [grants, setGrants] = useState<Grant[]>(initialGrants);
   const [selected, setSelected] = useState("r2");
