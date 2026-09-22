@@ -1,17 +1,19 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { supabase } from "@/integrations/supabase/client";
 import { sharedPatients } from "@/lib/patients";
 
 export const Route = createFileRoute("/provider/")({
   head: () => ({
     meta: [
-      { title: "Shared Patients — SableVault" },
+      { title: "Shared Patients — Medilink" },
       {
         name: "description",
         content:
           "Care provider view: the list of patients who have granted you access to their sealed vault.",
       },
-      { property: "og:title", content: "Shared Patients — SableVault" },
+      { property: "og:title", content: "Shared Patients — Medilink" },
       {
         property: "og:description",
         content:
@@ -25,6 +27,16 @@ export const Route = createFileRoute("/provider/")({
 });
 
 function PatientList() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  async function handleSignOut() {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/signin", replace: true });
+  }
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-ink font-sans text-tx antialiased">
       <div className="pointer-events-none fixed inset-0 aurora-field" />
@@ -36,18 +48,19 @@ function PatientList() {
               <div className="grid size-6 place-items-center rounded-md gradient-aurora">
                 <span className="size-2 rounded-full bg-ink/80" />
               </div>
-              <span className="text-[15px] font-semibold tracking-tight">SableVault</span>
+              <span className="text-[15px] font-semibold tracking-tight">Medilink</span>
               <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-mut">
                 Care provider
               </span>
             </div>
             <div className="ml-auto flex items-center gap-3">
-              <Link
-                to="/signin"
+              <button
+                type="button"
+                onClick={handleSignOut}
                 className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
               >
                 Sign out
-              </Link>
+              </button>
               <div className="grid size-8 place-items-center rounded-full bg-linear-to-br from-aurora3 to-aurora2 text-[11px] font-semibold text-ink">
                 DA
               </div>

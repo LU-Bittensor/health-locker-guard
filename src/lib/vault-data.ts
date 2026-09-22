@@ -35,7 +35,7 @@ export function initialsOf(name: string, fallback: string) {
   if (parts.length === 0) return fallback;
   return parts
     .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
+    .map((p) => p.charAt(0).toUpperCase())
     .join("");
 }
 

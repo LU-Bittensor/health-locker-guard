@@ -5,13 +5,13 @@ import { Vault } from "@/components/Vault";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SableVault — Records, Uploads & Access" },
+      { title: "Medilink — Records, Uploads & Access" },
       {
         name: "description",
         content:
           "Browse medical records, seal new uploads, and grant or revoke clinician access from a single ledger.",
       },
-      { property: "og:title", content: "SableVault — Records, Uploads & Access" },
+      { property: "og:title", content: "Medilink — Records, Uploads & Access" },
       {
         property: "og:description",
         content:
