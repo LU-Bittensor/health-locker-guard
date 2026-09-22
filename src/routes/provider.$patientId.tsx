@@ -6,13 +6,13 @@ import { findPatient } from "@/lib/patients";
 export const Route = createFileRoute("/provider/$patientId")({
   head: () => ({
     meta: [
-      { title: "Patient Vault — SableVault" },
+      { title: "Patient Vault — Medilink" },
       {
         name: "description",
         content:
           "Care provider view: browse the records a patient has shared and upload new clinical documents.",
       },
-      { property: "og:title", content: "Patient Vault — SableVault" },
+      { property: "og:title", content: "Patient Vault — Medilink" },
       {
         property: "og:description",
         content:
