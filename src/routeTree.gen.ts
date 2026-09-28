@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccessRouteImport } from './routes/access'
 import { Route as ProviderRouteImport } from './routes/provider'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as ProviderIndexRouteImport } from './routes/provider.index'
@@ -18,6 +19,11 @@ import { Route as ProviderPatientIdRouteImport } from './routes/provider.$patien
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessRoute = AccessRouteImport.update({
+  id: '/access',
+  path: '/access',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProviderRoute = ProviderRouteImport.update({
@@ -43,6 +49,7 @@ const ProviderPatientIdRoute = ProviderPatientIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/access': typeof AccessRoute
   '/provider': typeof ProviderRouteWithChildren
   '/signin': typeof SigninRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/access': typeof AccessRoute
   '/signin': typeof SigninRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
   '/provider': typeof ProviderIndexRoute
@@ -57,6 +65,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/access': typeof AccessRoute
   '/provider': typeof ProviderRouteWithChildren
   '/signin': typeof SigninRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
@@ -65,12 +74,18 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/provider' | '/signin' | '/provider/$patientId' | '/provider/'
+    | '/'
+    | '/access'
+    | '/provider'
+    | '/signin'
+    | '/provider/$patientId'
+    | '/provider/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/signin' | '/provider/$patientId' | '/provider'
+  to: '/' | '/access' | '/signin' | '/provider/$patientId' | '/provider'
   id:
     | '__root__'
     | '/'
+    | '/access'
     | '/provider'
     | '/signin'
     | '/provider/$patientId'
@@ -79,6 +94,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccessRoute: typeof AccessRoute
   ProviderRoute: typeof ProviderRouteWithChildren
   SigninRoute: typeof SigninRoute
 }
@@ -90,6 +106,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/access': {
+      id: '/access'
+      path: '/access'
+      fullPath: '/access'
+      preLoaderRoute: typeof AccessRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/provider': {
@@ -139,6 +162,7 @@ const ProviderRouteWithChildren = ProviderRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccessRoute: AccessRoute,
   ProviderRoute: ProviderRouteWithChildren,
   SigninRoute: SigninRoute,
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDemoAccount } from "@/lib/demo-account";
 import { Link } from "@tanstack/react-router";
 import {
   grantRequest,
@@ -12,29 +13,12 @@ const field = "w-full rounded-md border border-line bg-surface2 px-2.5 py-2 text
 const button = "rounded-md border border-line px-2.5 py-1.5 text-[12px] disabled:opacity-40";
 
 export function AccessPanel() {
-  const [demoUser, setDemoUser] = useState("patient");
-  // Remount on demo identity changes so no previous account's data remains visible.
+  const { demoUser } = useDemoAccount();
   return (
-    <section className="rounded-xl border border-line/70 bg-surface/80 p-4 text-tx">
-      <h2 className="text-[13px] font-semibold uppercase tracking-wider">Access ledger</h2>
-      {localGrantDemo && (
-        <div className="my-3 space-y-2 rounded-md border border-aurora/40 p-2">
-          <p className="text-[12px] text-aurora">Local demo · fixture accounts and records</p>
-          <label className="text-[12px]" htmlFor="demo-account">
-            Test as
-          </label>
-          <select
-            id="demo-account"
-            className={field}
-            value={demoUser}
-            onChange={(event) => setDemoUser(event.target.value)}
-          >
-            <option value="patient">Demo patient</option>
-            <option value="clinician">Demo clinician</option>
-            <option value="outsider">Unrelated user</option>
-          </select>
-        </div>
-      )}
+    <section
+      aria-label="Manage record access"
+      className="rounded-xl border border-line/70 bg-surface/80 p-4 text-tx sm:p-6"
+    >
       <AccountGrants key={demoUser} demoUser={demoUser} />
     </section>
   );

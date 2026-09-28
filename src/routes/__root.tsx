@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
+import { DemoAccountProvider } from "@/components/DemoAccountProvider";
 import { localGrantDemo } from "@/lib/grant-api";
 
 import appCss from "../styles.css?url";
@@ -152,7 +153,9 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <DemoAccountProvider>
+        <Outlet />
+      </DemoAccountProvider>
     </QueryClientProvider>
   );
 }

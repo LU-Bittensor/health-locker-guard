@@ -1,309 +1,199 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { VaultLayout } from "@/components/VaultLayout";
+import { useDemoAccount } from "@/lib/demo-account";
+import {
+  grantRequest,
+  localGrantDemo,
+  type AccessGrant,
+  type GrantRecord,
+  type GrantUser,
+} from "@/lib/grant-api";
 
-import { AccessPanel } from "@/components/AccessPanel";
-import { localGrantDemo } from "@/lib/grant-api";
+type VisibleRecord = GrantRecord & { ownerId: string; ownerName: string; owned: boolean };
 
-import sealedFolder from "@/assets/sealed-folder.jpg";
-import { supabase } from "@/integrations/supabase/client";
+export function Vault({ ownerId, sharedOnly = false }: { ownerId?: string; sharedOnly?: boolean }) {
+  const { demoUser } = useDemoAccount();
+  return (
+    <VaultLayout>
+      <Records
+        key={`${demoUser}:${ownerId || "all"}:${sharedOnly}`}
+        demoUser={demoUser}
+        ownerId={ownerId}
+        sharedOnly={sharedOnly}
+      />
+    </VaultLayout>
+  );
+}
 
-type RecordItem = {
-  id: string;
-  name: string;
-  kind: string;
-  date: string;
-  source: string;
-};
-
-const initialRecords: RecordItem[] = [
-  { id: "r1", name: "Lipid panel", kind: "Lab report", date: "01/14/25", source: "Quest" },
-  { id: "r2", name: "Chest X-ray", kind: "Imaging", date: "12/02/24", source: "Mercy Hospital" },
-  { id: "r3", name: "A1C trend", kind: "Lab report", date: "10/21/24", source: "Quest" },
-  { id: "r4", name: "ECG — resting", kind: "Cardiology", date: "09/08/24", source: "Dr. Alvarez" },
-  { id: "r5", name: "Immunization log", kind: "History", date: "06/30/24", source: "Dr. Osei" },
-  { id: "r6", name: "MRI — lumbar", kind: "Imaging", date: "04/11/24", source: "Mercy Hospital" },
-];
-
-const recordTypes = ["Lab report", "Imaging", "Cardiology", "History", "Visit note"];
-
-export function Vault({
-  showLedger = true,
-  roleLabel = "Patient",
-  initials = "RM",
-  patientName,
-  backTo,
+function Records({
+  demoUser,
+  ownerId,
+  sharedOnly,
 }: {
-  showLedger?: boolean;
-  roleLabel?: string;
-  initials?: string;
-  patientName?: string;
-  backTo?: "/provider";
+  demoUser: string;
+  ownerId: string | undefined;
+  sharedOnly: boolean;
 }) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-
-  const [records, setRecords] = useState<RecordItem[]>(initialRecords);
-  const [selected, setSelected] = useState("r2");
-  const [section, setSection] = useState<"records" | "upload" | "permissions">("records");
-
-  const [file, setFile] = useState<File | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [kind, setKind] = useState<string>(recordTypes[0]!);
-  const [date, setDate] = useState("2025-01-14");
-  const [tags, setTags] = useState("cardio, fasting");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const sections = showLedger
-    ? (["records", "upload", "permissions"] as const)
-    : (["records", "upload"] as const);
-
-  const size = useMemo(() => (file ? (file.size / 1024 / 1024).toFixed(1) : "0.0"), [file]);
-
-  function pick(f: File | null | undefined) {
-    if (f) setFile(f);
-  }
-
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(false);
-    pick(e.dataTransfer.files?.[0]);
-  }
-
-  function onInput(e: ChangeEvent<HTMLInputElement>) {
-    pick(e.target.files?.[0]);
-  }
-
-  function seal() {
-    const id = `r${Date.now()}`;
-    const [y, m, d] = date.split("-");
-    setRecords((prev) => [
-      {
-        id,
-        name: file ? file.name.replace(/\.[^.]+$/, "") : "Untitled record",
-        kind,
-        date: m && d && y ? `${m}/${d}/${y.slice(2)}` : date,
-        source: "You · uploaded",
-      },
-      ...prev,
-    ]);
-    setSelected(id);
-    setFile(null);
-    if (inputRef.current) inputRef.current.value = "";
-  }
-
-  async function handleSignOut() {
-    if (localGrantDemo) return;
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/signin", replace: true });
-  }
+  const [records, setRecords] = useState<VisibleRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    async function load() {
+      const account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
+      const [owned, grants] = await Promise.all([
+        grantRequest<GrantRecord[]>("/records", demoUser),
+        grantRequest<AccessGrant[]>("/grants", demoUser),
+      ]);
+      const visible = new Map<string, VisibleRecord>();
+      if (!sharedOnly)
+        for (const record of owned) {
+          if (!ownerId || account.id === ownerId)
+            visible.set(`${account.id}:${record.id}`, {
+              ...record,
+              ownerId: account.id,
+              ownerName: account.name,
+              owned: true,
+            });
+        }
+      for (const grant of grants) {
+        if (
+          grant.recipient_id !== account.id ||
+          grant.status !== "active" ||
+          (ownerId && grant.owner_id !== ownerId)
+        )
+          continue;
+        for (const id of grant.record_ids)
+          visible.set(`${grant.owner_id}:${id}`, {
+            id,
+            name: grant.record_name,
+            kind: grant.scope,
+            ownerId: grant.owner_id,
+            ownerName: grant.owner_name,
+            owned: false,
+          });
+      }
+      if (!cancelled) setRecords([...visible.values()]);
+    }
+    void load()
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setRecords([]);
+          setError(cause instanceof Error ? cause.message : "Could not load records.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [demoUser, ownerId, sharedOnly, refresh]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-ink font-sans text-tx antialiased">
-      <div className="pointer-events-none fixed inset-0 aurora-field" />
-
-      <div className="relative mx-auto max-w-[1440px]">
-        <header className="sticky top-0 z-20 border-b border-line/70 bg-ink/70 backdrop-blur-md">
-          <div className="flex h-14 items-center gap-6 px-6">
-            <div className="flex items-center gap-2.5">
-              <div className="grid size-6 place-items-center rounded-md gradient-aurora">
-                <span className="size-2 rounded-full bg-ink/80" />
-              </div>
-              <span className="text-[15px] font-semibold tracking-tight">Medilink</span>
-              <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-mut">
-                {roleLabel}
-              </span>
-            </div>
-            {backTo && (
-              <Link
-                to={backTo}
-                className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
-              >
-                ← All patients
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-widest text-aurora">
+            {localGrantDemo ? "Access testing" : "Your vault"}
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {sharedOnly || ownerId ? "Shared records" : "Records"}
+          </h1>
+          <p className="mt-2 max-w-xl text-sm text-mut">
+            {localGrantDemo
+              ? "The demo records used for your access tests. Shared records appear while their grants are active."
+              : "Your saved records and records shared with your account."}
+          </p>
+        </div>
+        <Link
+          to="/access"
+          className="rounded-lg gradient-aurora px-4 py-2.5 text-sm font-semibold text-ink"
+        >
+          Manage access
+        </Link>
+      </div>
+      <section
+        aria-label="Records"
+        className="overflow-hidden rounded-xl border border-line/70 bg-surface/70"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <span className="text-sm text-mut" role="status">
+            {loading
+              ? "Loading records…"
+              : `${records.length} record${records.length === 1 ? "" : "s"}`}
+          </span>
+          <button
+            disabled={loading}
+            onClick={() => setRefresh((value) => value + 1)}
+            className="rounded-md border border-line px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            Refresh records
+          </button>
+        </div>
+        {error ? (
+          <div role="alert" className="space-y-2 p-6 text-sm">
+            <p className="text-red-400">{error}</p>
+            <p className="text-mut">Check that the Python API is running, then refresh records.</p>
+            {!localGrantDemo && (
+              <Link to="/signin" className="text-aurora underline">
+                Sign in
               </Link>
             )}
-            {patientName && (
-              <span className="text-[13px] font-medium">
-                <span className="text-mut">Viewing </span>
-                {patientName}
-              </span>
-            )}
-
-            <nav className="ml-4 flex items-center gap-1 text-[13px]">
-              {sections.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSection(s)}
-                  className={`rounded-md px-3 py-1.5 capitalize transition-colors ${
-                    section === s ? "bg-surface2/70 font-medium text-tx" : "text-mut hover:text-tx"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </nav>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="hidden items-center gap-2 rounded-md border border-line px-3 py-1.5 font-mono text-[12px] text-mut md:flex">
-                <span className="size-1.5 rounded-full bg-aurora animate-vault-pulse" />
-                Vault sealed
-              </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
-              >
-                Sign out
-              </button>
-              <div className="grid size-8 place-items-center rounded-full bg-linear-to-br from-aurora3 to-aurora2 text-[11px] font-semibold text-ink">
-                {initials}
-              </div>
-            </div>
           </div>
-        </header>
-
-        <div className="grid grid-cols-12 gap-4 p-4">
-          {/* Upload column */}
-          <aside className="col-span-12 space-y-4 lg:col-span-4">
-            <div className="relative aspect-16/10 overflow-hidden rounded-xl outline-1 -outline-offset-1 outline-tx/5">
-              <img
-                src={sealedFolder}
-                alt="A sealed linen medical folder closed with a wax seal"
-                width={1024}
-                height={640}
-                className="size-full object-cover"
-              />
+        ) : !loading && records.length === 0 ? (
+          <div className="p-8 text-center">
+            <h2 className="font-medium">No records available</h2>
+            <p className="mt-2 text-sm text-mut">
+              Records you own or have active access to will appear here.
+            </p>
+            <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
+              Open access ledger →
+            </Link>
+          </div>
+        ) : (
+          !loading && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-line/50 text-xs uppercase tracking-wide text-mut">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Record</th>
+                    <th className="px-5 py-3 font-medium">Record ID</th>
+                    <th className="px-5 py-3 font-medium">Access</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line/50">
+                  {records.map((record) => (
+                    <tr key={`${record.ownerId}:${record.id}`}>
+                      <td className="px-5 py-5">
+                        <p className="font-medium">{record.name}</p>
+                        <p className="mt-1 text-xs text-mut">{record.kind}</p>
+                      </td>
+                      <td className="px-5 py-5 font-mono text-xs text-mut">{record.id}</td>
+                      <td className="px-5 py-5">
+                        <span className="text-aurora">
+                          {record.owned ? "Owned by you" : "Shared with you"}
+                        </span>
+                        {!record.owned && (
+                          <p className="mt-1 text-xs text-mut">From {record.ownerName}</p>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            <div className="rounded-xl border border-line/70 bg-surface/70 p-4 backdrop-blur-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
-                  Upload record
-                </h2>
-                <span className="font-mono text-[10px] text-mut">{size}MB</span>
-              </div>
-
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={onDrop}
-                onClick={() => inputRef.current?.click()}
-                className={`cursor-pointer rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
-                  dragging ? "border-aurora bg-aurora/10" : "border-aurora/40 bg-aurora/[0.04]"
-                }`}
-              >
-                <div className="mx-auto mb-2.5 grid size-9 place-items-center rounded-lg bg-linear-to-br from-aurora/25 to-aurora2/25">
-                  <div className="size-3.5 rounded-sm bg-aurora" />
-                </div>
-                <p className="text-[13px] font-medium">{file ? file.name : "Drop files to seal"}</p>
-                <p className="mt-0.5 text-[11px] text-mut">PDF · DICOM · JPG · max 50MB</p>
-                <input
-                  ref={inputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={onInput}
-                  aria-label="Choose a medical record file"
-                />
-              </div>
-
-              <div className="mt-3.5 space-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="kind" className="text-mut">
-                    Record type
-                  </label>
-                  <select
-                    id="kind"
-                    value={kind}
-                    onChange={(e) => setKind(e.target.value)}
-                    className="rounded border border-line bg-surface2/60 px-2 py-1 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
-                  >
-                    {recordTypes.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="date" className="text-mut">
-                    Date
-                  </label>
-                  <input
-                    id="date"
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="rounded border border-line bg-surface2/60 px-2 py-1 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="tags" className="text-mut">
-                    Tags
-                  </label>
-                  <input
-                    id="tags"
-                    value={tags}
-                    onChange={(e) => setTags(e.target.value)}
-                    className="w-40 rounded border border-line bg-surface2/60 px-2 py-1 text-right font-mono text-[11px] text-tx outline-none focus:border-aurora/60"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={seal}
-                className="mt-4 w-full rounded-lg gradient-aurora py-2.5 text-[13px] font-semibold text-ink transition-transform active:scale-[0.99]"
-              >
-                Seal &amp; add record
-              </button>
-            </div>
-          </aside>
-
-          {/* Records */}
-          <main className={showLedger ? "col-span-12 lg:col-span-5" : "col-span-12 lg:col-span-8"}>
-            <div className="overflow-hidden rounded-xl border border-line/70 bg-surface/60 backdrop-blur-xl">
-              <div className="flex h-11 items-center justify-between border-b border-line/70 px-4">
-                <h1 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
-                  Records
-                </h1>
-                <span className="font-mono text-[11px] text-mut">{records.length} total</span>
-              </div>
-              <div className="grid grid-cols-[1.6fr_0.9fr_1fr] gap-2 border-b border-line/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-mut">
-                <span>Type</span>
-                <span>Date</span>
-                <span>Source</span>
-              </div>
-              <div className="divide-y divide-line/50 text-[13px]">
-                {records.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setSelected(r.id)}
-                    className={`grid w-full grid-cols-[1.6fr_0.9fr_1fr] items-center gap-2 px-4 py-3 text-left transition-colors ${
-                      selected === r.id ? "bg-aurora/[0.05]" : "hover:bg-surface2/40"
-                    }`}
-                  >
-                    <div>
-                      <div className={`font-medium ${selected === r.id ? "text-aurora" : ""}`}>
-                        {r.name}
-                      </div>
-                      <div className="text-[11px] text-mut">{r.kind}</div>
-                    </div>
-                    <div className="font-mono text-[12px] text-mut">{r.date}</div>
-                    <div className="text-[12px] text-mut">{r.source}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </main>
-
-          {showLedger && (
-            <aside className="col-span-12 lg:col-span-3">
-              <AccessPanel />
-            </aside>
-          )}
-        </div>
-      </div>
+          )
+        )}
+      </section>
+      <p className="text-xs text-mut">
+        Use the access ledger to grant, verify, or revoke access. File uploads and downloads are not
+        connected yet.
+      </p>
     </div>
   );
 }
