@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Vault } from "@/components/Vault";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
-  head: () => ({ meta: [{ title: "Records — Medilink" }] }),
-  component: () => <Vault />,
+  beforeLoad: () => {
+    throw redirect({ to: "/signin", replace: true });
+  },
 });

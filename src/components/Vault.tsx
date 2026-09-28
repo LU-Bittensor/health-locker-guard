@@ -138,7 +138,9 @@ function Records({
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
             <p className="text-red-400">{error}</p>
-            <p className="text-mut">Check that the Python API is running, then refresh records.</p>
+            <p className="text-mut">
+              Resolve the connection or account issue above, then refresh records.
+            </p>
             {!localGrantDemo && (
               <Link to="/signin" className="text-aurora underline">
                 Sign in
@@ -147,9 +149,10 @@ function Records({
           </div>
         ) : !loading && records.length === 0 ? (
           <div className="p-8 text-center">
-            <h2 className="font-medium">No records available</h2>
+            <h2 className="font-medium">No records yet</h2>
             <p className="mt-2 text-sm text-mut">
-              Records you own or have active access to will appear here.
+              No records are available for this account yet. Records you own or that have been
+              shared with you will appear here.
             </p>
             <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
               Open access ledger →

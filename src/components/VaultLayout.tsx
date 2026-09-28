@@ -26,12 +26,12 @@ export function VaultLayout({ children }: { children: ReactNode }) {
       <div className="relative">
         <header className="border-b border-line/70 bg-ink/80">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-4 sm:px-8">
-            <Link to="/" className="text-lg font-semibold tracking-tight">
+            <Link to="/records" className="text-lg font-semibold tracking-tight">
               Medilink
             </Link>
             <nav aria-label="Main navigation" className="flex gap-2 text-sm">
               <Link
-                to="/"
+                to="/records"
                 activeOptions={{ exact: true }}
                 className="rounded-md px-3 py-2"
                 activeProps={{ className: "bg-surface2 text-aurora" }}

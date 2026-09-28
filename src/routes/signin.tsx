@@ -1,8 +1,9 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { localGrantDemo } from "@/lib/grant-api";
 import { fetchRole } from "@/lib/vault-data";
 
 export const Route = createFileRoute("/signin")({
@@ -42,13 +43,14 @@ function SignIn() {
   const isPatient = role === "patient";
 
   useEffect(() => {
+    if (localGrantDemo) return;
     let cancelled = false;
     async function redirectSignedInUser() {
       const { data } = await supabase.auth.getUser();
       if (!data.user || cancelled) return;
       const accountRole = await fetchRole();
       if (cancelled) return;
-      navigate({ to: accountRole === "provider" ? "/provider" : "/", replace: true });
+      navigate({ to: accountRole === "provider" ? "/provider" : "/records", replace: true });
     }
     void redirectSignedInUser();
     return () => {
@@ -95,7 +97,7 @@ function SignIn() {
         if (signUpError) throw signUpError;
 
         if (data.session) {
-          navigate({ to: isPatient ? "/" : "/provider", replace: true });
+          navigate({ to: isPatient ? "/records" : "/provider", replace: true });
           return;
         }
 
@@ -119,9 +121,11 @@ function SignIn() {
         return;
       }
 
-      navigate({ to: accountRole === "provider" ? "/provider" : "/", replace: true });
+      navigate({ to: accountRole === "provider" ? "/provider" : "/records", replace: true });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
+      setError(
+        caught instanceof Error ? caught.message : "Something went wrong. Please try again.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -144,7 +148,9 @@ function SignIn() {
             {mode === "signin" ? "Sign in to your vault" : "Create your account"}
           </h1>
           <p className="mt-1 text-center text-[12px] text-mut">
-            {mode === "signin" ? "Choose how you&apos;re signing in today" : "Choose the account type you need"}
+            {mode === "signin"
+              ? "Choose how you&apos;re signing in today"
+              : "Choose the account type you need"}
           </p>
 
           <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg border border-line/70 bg-surface2/40 p-1">
@@ -160,15 +166,22 @@ function SignIn() {
                 onClick={() => setRole(value)}
                 aria-pressed={role === value}
                 className={`rounded-md px-2 py-2 text-[12px] font-medium transition-colors ${
-                  role === value
-                    ? "bg-aurora/15 text-aurora"
-                    : "text-mut hover:text-tx"
+                  role === value ? "bg-aurora/15 text-aurora" : "text-mut hover:text-tx"
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+
+          {localGrantDemo && (
+            <Link
+              to="/records"
+              className="mt-4 block rounded-md border border-aurora/40 px-3 py-2 text-center text-sm text-aurora"
+            >
+              Open local demo
+            </Link>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
             {mode === "create" && (
@@ -243,8 +256,16 @@ function SignIn() {
               />
             </div>
 
-            {error && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{error}</p>}
-            {message && <p className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora">{message}</p>}
+            {error && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora">
+                {message}
+              </p>
+            )}
 
             <Button
               type="submit"

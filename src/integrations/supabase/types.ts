@@ -44,6 +44,27 @@ export type Database = {
         }
         Relationships: []
       }
+      patients: {
+        Row: {
+          id: string
+          name: string
+          email: string
+          created_at: string
+        }
+        Insert: {
+          id: string
+          name: string
+          email: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          email?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
