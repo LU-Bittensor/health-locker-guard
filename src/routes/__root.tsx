@@ -9,6 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
+import { localGrantDemo } from "@/lib/grant-api";
+
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
@@ -81,14 +83,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Medilink — Medical Record Vault" },
       {
         name: "description",
-        content:
-          "Access, upload, and grant permission to medical records from one sealed vault.",
+        content: "Access, upload, and grant permission to medical records from one sealed vault.",
       },
       { property: "og:title", content: "Medilink — Medical Record Vault" },
       {
         property: "og:description",
-        content:
-          "Access, upload, and grant permission to medical records from one sealed vault.",
+        content: "Access, upload, and grant permission to medical records from one sealed vault.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -137,6 +137,7 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
+    if (localGrantDemo) return;
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {

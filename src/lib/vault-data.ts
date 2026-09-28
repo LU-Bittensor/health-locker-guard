@@ -9,14 +9,6 @@ export type RecordRow = {
   tags: string;
 };
 
-export type GrantRow = {
-  id: string;
-  who: string;
-  scope: string;
-  expires_at: string | null;
-  active: boolean;
-};
-
 export type Profile = {
   id: string;
   full_name: string;
@@ -61,15 +53,6 @@ export async function fetchRecords(): Promise<RecordRow[]> {
   return data ?? [];
 }
 
-export async function fetchGrants(): Promise<GrantRow[]> {
-  const { data, error } = await supabase
-    .from("grants")
-    .select("id, who, scope, expires_at, active")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
-}
-
 export async function insertRecord(input: {
   name: string;
   kind: string;
@@ -84,23 +67,7 @@ export async function insertRecord(input: {
   if (error) throw error;
 }
 
-export async function insertGrant(input: { who: string; scope: string }) {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) throw new Error("Not signed in");
-  const { error } = await supabase.from("grants").insert({ ...input, owner_id: uid });
-  if (error) throw error;
-}
-
-export async function setGrantActive(id: string, active: boolean) {
-  const { error } = await supabase.from("grants").update({ active }).eq("id", id);
-  if (error) throw error;
-}
-
-export async function deleteGrant(id: string) {
-  const { error } = await supabase.from("grants").delete().eq("id", id);
-  if (error) throw error;
-}
+// Access grants are managed by the authenticated Python service in grant-api.ts.
 
 export async function fetchRole(): Promise<"patient" | "provider"> {
   const { data: auth } = await supabase.auth.getUser();

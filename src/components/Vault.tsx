@@ -2,6 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
+import { AccessPanel } from "@/components/AccessPanel";
+import { localGrantDemo } from "@/lib/grant-api";
+
 import sealedFolder from "@/assets/sealed-folder.jpg";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -13,15 +16,6 @@ type RecordItem = {
   source: string;
 };
 
-type Grant = {
-  id: string;
-  who: string;
-  scope: string;
-  expires: string;
-  active: boolean;
-  highlight?: boolean;
-};
-
 const initialRecords: RecordItem[] = [
   { id: "r1", name: "Lipid panel", kind: "Lab report", date: "01/14/25", source: "Quest" },
   { id: "r2", name: "Chest X-ray", kind: "Imaging", date: "12/02/24", source: "Mercy Hospital" },
@@ -29,25 +23,6 @@ const initialRecords: RecordItem[] = [
   { id: "r4", name: "ECG — resting", kind: "Cardiology", date: "09/08/24", source: "Dr. Alvarez" },
   { id: "r5", name: "Immunization log", kind: "History", date: "06/30/24", source: "Dr. Osei" },
   { id: "r6", name: "MRI — lumbar", kind: "Imaging", date: "04/11/24", source: "Mercy Hospital" },
-];
-
-const initialGrants: Grant[] = [
-  { id: "g1", who: "Dr. Alvarez", scope: "Cardiology", expires: "Expires 03/14/25", active: true },
-  {
-    id: "g2",
-    who: "Mercy Hospital",
-    scope: "Imaging",
-    expires: "Expires 07/01/25",
-    active: true,
-  },
-  {
-    id: "g3",
-    who: "Family access",
-    scope: "All records",
-    expires: "No expiry",
-    active: true,
-    highlight: true,
-  },
 ];
 
 const recordTypes = ["Lab report", "Imaging", "Cardiology", "History", "Visit note"];
@@ -69,7 +44,6 @@ export function Vault({
   const queryClient = useQueryClient();
 
   const [records, setRecords] = useState<RecordItem[]>(initialRecords);
-  const [grants, setGrants] = useState<Grant[]>(initialGrants);
   const [selected, setSelected] = useState("r2");
   const [section, setSection] = useState<"records" | "upload" | "permissions">("records");
 
@@ -79,9 +53,6 @@ export function Vault({
   const [date, setDate] = useState("2025-01-14");
   const [tags, setTags] = useState("cardio, fasting");
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const [newWho, setNewWho] = useState("");
-  const [newScope, setNewScope] = useState("All records");
 
   const sections = showLedger
     ? (["records", "upload", "permissions"] as const)
@@ -121,22 +92,8 @@ export function Vault({
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function grantAccess() {
-    if (!newWho.trim()) return;
-    setGrants((prev) => [
-      ...prev,
-      {
-        id: `g${Date.now()}`,
-        who: newWho.trim(),
-        scope: newScope,
-        expires: "No expiry",
-        active: true,
-      },
-    ]);
-    setNewWho("");
-  }
-
   async function handleSignOut() {
+    if (localGrantDemo) return;
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
@@ -340,104 +297,9 @@ export function Vault({
             </div>
           </main>
 
-          {/* Access ledger */}
           {showLedger && (
             <aside className="col-span-12 lg:col-span-3">
-              <div className="overflow-hidden rounded-xl border border-line/70 bg-surface/60 backdrop-blur-xl">
-                <div className="flex h-11 items-center border-b border-line/70 px-4">
-                  <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
-                    Access ledger
-                  </h2>
-                </div>
-                <div className="space-y-2 p-3 text-[13px]">
-                  {grants.map((g) => (
-                    <div
-                      key={g.id}
-                      className={`animate-rise rounded-lg border p-3 ${
-                        g.highlight
-                          ? "border-aurora/40 bg-aurora/[0.06]"
-                          : "border-line/60 bg-surface2/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`font-medium ${g.highlight ? "text-aurora" : ""} ${
-                            g.active ? "" : "text-mut line-through"
-                          }`}
-                        >
-                          {g.who}
-                        </span>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-mut">
-                          {g.scope}
-                        </span>
-                      </div>
-                      <div className="mt-2.5 flex items-center justify-between">
-                        <span className="text-[11px] text-mut">{g.expires}</span>
-                        {g.highlight ? (
-                          <button
-                            role="switch"
-                            aria-checked={g.active}
-                            aria-label={`Toggle ${g.who}`}
-                            onClick={() =>
-                              setGrants((prev) =>
-                                prev.map((x) => (x.id === g.id ? { ...x, active: !x.active } : x)),
-                              )
-                            }
-                            className={`relative h-5 w-9 rounded-full transition-colors ${
-                              g.active ? "bg-aurora" : "bg-line"
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 size-4 rounded-full bg-ink transition-all ${
-                                g.active ? "right-0.5" : "left-0.5"
-                              }`}
-                            />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setGrants((prev) => prev.filter((x) => x.id !== g.id))}
-                            className="rounded-md border border-line px-2.5 py-1 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
-                          >
-                            Revoke
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-2 border-t border-line/70 p-3">
-                  <label
-                    htmlFor="who"
-                    className="block font-mono text-[10px] uppercase tracking-[0.12em] text-mut"
-                  >
-                    Grant access
-                  </label>
-                  <input
-                    id="who"
-                    value={newWho}
-                    onChange={(e) => setNewWho(e.target.value)}
-                    placeholder="Clinician or organization"
-                    className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[12px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
-                  />
-                  <select
-                    value={newScope}
-                    onChange={(e) => setNewScope(e.target.value)}
-                    aria-label="Access scope"
-                    className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
-                  >
-                    <option>All records</option>
-                    {recordTypes.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={grantAccess}
-                    className="w-full rounded-md border border-aurora/40 bg-aurora/[0.06] py-2 text-[12px] font-medium text-aurora transition-colors hover:bg-aurora/10"
-                  >
-                    Grant
-                  </button>
-                </div>
-              </div>
+              <AccessPanel />
             </aside>
           )}
         </div>

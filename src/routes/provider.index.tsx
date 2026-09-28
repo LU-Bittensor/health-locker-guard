@@ -1,6 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { AccessPanel } from "@/components/AccessPanel";
+
 import { supabase } from "@/integrations/supabase/client";
 import { sharedPatients } from "@/lib/patients";
 
@@ -69,6 +71,7 @@ function PatientList() {
         </header>
 
         <div className="mx-auto max-w-[620px] p-4 sm:p-8">
+          <AccessPanel />
           <h1 className="text-[20px] font-semibold tracking-tight">Shared patients</h1>
           <p className="mt-1 text-[12px] text-mut">
             Names only. Open a patient to view the records they&apos;ve shared with you.
