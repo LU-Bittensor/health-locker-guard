@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoAccount } from "@/lib/demo-account";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
 import {
   grantRequest,
@@ -148,6 +149,87 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       );
   }
 
+  const activeGrants = grants.filter((grant) => grant.status === "active");
+  const revokedGrants = grants.filter((grant) => ["revoked", "revoking"].includes(grant.status));
+  const setupGrants = grants.filter((grant) => ["pending", "failed"].includes(grant.status));
+
+  const renderGrant = (grant: AccessGrant) => (
+    <div key={grant.id} className="space-y-2 rounded-md border border-line p-3">
+      <h3 className="break-words text-lg font-semibold leading-snug sm:text-xl">
+        {grant.record_name}
+      </h3>
+      <p className="text-mut">{grant.scope}</p>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-mut">Sender</dt>
+          <dd className="break-words font-medium text-sky-300">{grant.owner_name}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-mut">Recipient</dt>
+          <dd className="break-words font-medium text-violet-300">{grant.recipient_name}</dd>
+        </div>
+      </dl>
+      <p className="capitalize">Status: {grant.status}</p>
+      {grant.error && <p className="text-mut">{grant.error}</p>}
+      {grant.contract_address && (
+        <p className="break-all text-[11px]">Contract: {grant.contract_address}</p>
+      )}
+      {grant.deploy_tx && (
+        <details className="text-mut">
+          <summary>Deployment transaction</summary>
+          <p className="break-all">{grant.deploy_tx}</p>
+        </details>
+      )}
+      {grant.register_tx && (
+        <details className="text-mut">
+          <summary>Commitment transaction</summary>
+          <p className="break-all">{grant.register_tx}</p>
+        </details>
+      )}
+      {grant.contract_killed && <p>Contract permanently disabled</p>}
+      {grant.kill_tx && (
+        <details className="text-mut">
+          <summary>Revocation transaction</summary>
+          <p className="break-all">{grant.kill_tx}</p>
+        </details>
+      )}
+      {grant.status === "revoking" && (
+        <p className="text-mut">API access blocked. Contract disablement awaiting confirmation.</p>
+      )}
+      {grant.owner_id === me?.id && grant.status === "pending" && (
+        <button
+          className={button}
+          disabled={busy}
+          onClick={() => void perform(() => resumeSetup(grant))}
+        >
+          Resume setup
+        </button>
+      )}
+      {grant.tx_hash && !grant.deploy_tx && (
+        <p className="break-all text-[10px] text-mut">Transaction: {grant.tx_hash}</p>
+      )}
+      {grant.owner_id === me?.id &&
+        ["active", "pending", "failed", "revoking"].includes(grant.status) && (
+          <button
+            className={button}
+            disabled={busy}
+            onClick={() => void perform(() => revoke(grant))}
+          >
+            {grant.status === "revoking" ? "Retry revocation" : "Revoke"}
+          </button>
+        )}
+      {grant.recipient_id === me?.id && (
+        <button
+          className={button}
+          disabled={busy}
+          onClick={() => void perform(() => checkAccess(grant))}
+        >
+          Check access
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="mt-3 space-y-3 text-[12px]">
       <div className="flex items-center justify-between gap-2">
@@ -234,79 +316,56 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               Recipients must sign in and open this panel once before you can select them.
             </p>
           )}
-          {grants.length === 0 && <p className="text-mut">No grants for this account.</p>}
-          {grants.map((grant) => (
-            <div key={grant.id} className="space-y-2 rounded-md border border-line p-3">
-              <p className="font-medium">
-                {grant.owner_id === me.id
-                  ? `To ${grant.recipient_name}`
-                  : `From ${grant.owner_name}`}
+          <Tabs defaultValue="active" className="pt-3">
+            <TabsList
+              aria-label="Access grant status"
+              className="grid w-full grid-cols-2 bg-surface2 text-mut"
+            >
+              <TabsTrigger
+                value="active"
+                className="data-[state=active]:bg-ink data-[state=active]:text-aurora"
+              >
+                Active ({activeGrants.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="revoked"
+                className="data-[state=active]:bg-ink data-[state=active]:text-rose-300"
+              >
+                Revoked ({revokedGrants.length})
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="active" className="space-y-3 pt-2">
+              {activeGrants.length === 0 ? (
+                <p className="py-4 text-center text-mut">No active access grants.</p>
+              ) : (
+                activeGrants.map(renderGrant)
+              )}
+            </TabsContent>
+            <TabsContent value="revoked" className="space-y-3 pt-2">
+              <p className="text-mut">
+                Access is blocked for these grants, including any awaiting contract disablement.
               </p>
-              <p>
-                {grant.record_name} · {grant.scope}
+              {revokedGrants.length === 0 ? (
+                <p className="py-4 text-center text-mut">No revoked access grants.</p>
+              ) : (
+                revokedGrants.map(renderGrant)
+              )}
+            </TabsContent>
+          </Tabs>
+          {setupGrants.length > 0 && (
+            <section
+              aria-label="Setup needs attention"
+              className="space-y-3 border-t border-line pt-4"
+            >
+              <h2 className="text-sm font-semibold text-amber-300">
+                Setup needs attention ({setupGrants.length})
+              </h2>
+              <p className="text-mut">
+                These grants are not active. Complete setup or revoke them below.
               </p>
-              <p className="capitalize">Status: {grant.status}</p>
-              {grant.error && <p className="text-mut">{grant.error}</p>}
-              {grant.contract_address && (
-                <p className="break-all text-[11px]">Contract: {grant.contract_address}</p>
-              )}
-              {grant.deploy_tx && (
-                <details className="text-mut">
-                  <summary>Deployment transaction</summary>
-                  <p className="break-all">{grant.deploy_tx}</p>
-                </details>
-              )}
-              {grant.register_tx && (
-                <details className="text-mut">
-                  <summary>Commitment transaction</summary>
-                  <p className="break-all">{grant.register_tx}</p>
-                </details>
-              )}
-              {grant.contract_killed && <p>Contract permanently disabled</p>}
-              {grant.kill_tx && (
-                <details className="text-mut">
-                  <summary>Revocation transaction</summary>
-                  <p className="break-all">{grant.kill_tx}</p>
-                </details>
-              )}
-              {grant.status === "revoking" && (
-                <p className="text-mut">
-                  API access blocked. Contract disablement awaiting confirmation.
-                </p>
-              )}
-              {grant.owner_id === me.id && grant.status === "pending" && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => void perform(() => resumeSetup(grant))}
-                >
-                  Resume setup
-                </button>
-              )}
-              {grant.tx_hash && !grant.deploy_tx && (
-                <p className="break-all text-[10px] text-mut">Transaction: {grant.tx_hash}</p>
-              )}
-              {grant.owner_id === me.id &&
-                ["active", "pending", "failed", "revoking"].includes(grant.status) && (
-                  <button
-                    className={button}
-                    disabled={busy}
-                    onClick={() => void perform(() => revoke(grant))}
-                  >
-                    {grant.status === "revoking" ? "Retry revocation" : "Revoke"}
-                  </button>
-                )}
-              {grant.recipient_id === me.id && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => void perform(() => checkAccess(grant))}
-                >
-                  Check access
-                </button>
-              )}
-            </div>
-          ))}
+              {setupGrants.map(renderGrant)}
+            </section>
+          )}
           <p className="text-mut">
             This panel verifies permissions and key sharing. Record downloads are not connected yet.
           </p>
