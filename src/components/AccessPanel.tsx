@@ -103,7 +103,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     ]);
     const active = result.grants.filter((grant) => grant.status === "active").length;
     setMessage(
-      `${active} of ${result.grants.length} record grants active. ${chainEnabled ? "Each record uses its own contract." : "Off-chain mode: no contracts deployed."}`,
+      `${active} of ${result.grants.length} record grants active. ${chainEnabled ? "All records use the shared access registry." : "Off-chain mode: no contracts deployed."}`,
     );
   }
 
@@ -115,7 +115,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     setGrants((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     setMessage(
       updated.status === "active"
-        ? "Contract deployed and commitment registered."
+        ? "Recipient grant registered on-chain."
         : updated.error || "Waiting for transaction confirmation.",
     );
   }
@@ -128,9 +128,9 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     setGrants((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     setMessage(
       updated.status === "revoked"
-        ? updated.contract_killed
-          ? "Access revoked. Contract permanently disabled on-chain."
-          : "Access revoked. No deployed contract needs disabling."
+        ? updated.registry_revoked
+          ? "Access revoked in the registry."
+          : "Access revoked. No on-chain grant needs removal."
         : updated.error || "Revocation pending.",
     );
   }
@@ -150,6 +150,8 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   }
 
   const activeGrants = grants.filter((grant) => grant.status === "active");
+  const outgoingGrants = activeGrants.filter((grant) => grant.owner_id === me?.id);
+  const incomingGrants = activeGrants.filter((grant) => grant.recipient_id === me?.id);
   const revokedGrants = grants.filter((grant) => ["revoked", "revoking"].includes(grant.status));
   const setupGrants = grants.filter((grant) => ["pending", "failed"].includes(grant.status));
 
@@ -172,29 +174,41 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       <p className="capitalize">Status: {grant.status}</p>
       {grant.error && <p className="text-mut">{grant.error}</p>}
       {grant.contract_address && (
-        <p className="break-all text-[11px]">Contract: {grant.contract_address}</p>
+        <p className="break-all text-[11px]">Registry: {grant.contract_address}</p>
+      )}
+      {grant.chain_enabled && (
+        <>
+          <p className="break-all text-[11px]">Resource ID: {grant.resource_id}</p>
+          <p className="break-all text-[11px]">Recipient wallet: {grant.recipient_wallet}</p>
+        </>
+      )}
+      {grant.resource_tx && (
+        <details className="text-mut">
+          <summary>Resource registration transaction</summary>
+          <p className="break-all">{grant.resource_tx}</p>
+        </details>
       )}
       {grant.deploy_tx && (
         <details className="text-mut">
-          <summary>Deployment transaction</summary>
+          <summary>Registry deployment transaction</summary>
           <p className="break-all">{grant.deploy_tx}</p>
         </details>
       )}
       {grant.register_tx && (
         <details className="text-mut">
-          <summary>Commitment transaction</summary>
+          <summary>Grant transaction</summary>
           <p className="break-all">{grant.register_tx}</p>
         </details>
       )}
-      {grant.contract_killed && <p>Contract permanently disabled</p>}
-      {grant.kill_tx && (
+      {grant.registry_revoked && <p>Recipient grant removed from registry</p>}
+      {grant.revoke_tx && (
         <details className="text-mut">
           <summary>Revocation transaction</summary>
-          <p className="break-all">{grant.kill_tx}</p>
+          <p className="break-all">{grant.revoke_tx}</p>
         </details>
       )}
       {grant.status === "revoking" && (
-        <p className="text-mut">API access blocked. Contract disablement awaiting confirmation.</p>
+        <p className="text-mut">API access blocked. Registry revocation awaiting confirmation.</p>
       )}
       {grant.owner_id === me?.id && grant.status === "pending" && (
         <button
@@ -257,7 +271,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
         <>
           <p className="text-mut">
             {chainEnabled
-              ? "Blockchain connected · one contract per recipient and record"
+              ? "Blockchain connected · shared AccessRegistry"
               : "Off-chain demo · start the API with --chain to deploy contracts"}
           </p>
           {chainEnabled && (
@@ -297,8 +311,8 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 ))}
               </select>
               <p className="text-mut">
-                Shares each matching record separately. Each recipient–record pair gets its own
-                contract when blockchain mode is enabled.
+                Shares each matching record separately. Each recipient gets a separate credential in
+                the shared registry when blockchain mode is enabled.
               </p>
               <button
                 className={`${button} w-full border-aurora/40 text-aurora`}
@@ -335,15 +349,35 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="active" className="space-y-3 pt-2">
-              {activeGrants.length === 0 ? (
-                <p className="py-4 text-center text-mut">No active access grants.</p>
-              ) : (
-                activeGrants.map(renderGrant)
-              )}
+              <section aria-label="Active outgoing receipts" className="space-y-3">
+                <h2 className="text-sm font-semibold text-sky-300">
+                  Active outgoing receipts ({outgoingGrants.length})
+                </h2>
+                <p className="text-mut">Records you have shared with others.</p>
+                {outgoingGrants.length ? (
+                  outgoingGrants.map(renderGrant)
+                ) : (
+                  <p className="py-3 text-mut">No active outgoing receipts.</p>
+                )}
+              </section>
+              <section
+                aria-label="Active incoming receipts"
+                className="space-y-3 border-t border-line pt-4"
+              >
+                <h2 className="text-sm font-semibold text-violet-300">
+                  Active incoming receipts ({incomingGrants.length})
+                </h2>
+                <p className="text-mut">Records others have shared with you.</p>
+                {incomingGrants.length ? (
+                  incomingGrants.map(renderGrant)
+                ) : (
+                  <p className="py-3 text-mut">No active incoming receipts.</p>
+                )}
+              </section>
             </TabsContent>
             <TabsContent value="revoked" className="space-y-3 pt-2">
               <p className="text-mut">
-                Access is blocked for these grants, including any awaiting contract disablement.
+                Access is blocked for these grants, including any awaiting registry revocation.
               </p>
               {revokedGrants.length === 0 ? (
                 <p className="py-4 text-center text-mut">No revoked access grants.</p>

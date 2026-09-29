@@ -17,7 +17,7 @@ function AccessLedgerPage() {
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">Access ledger</h1>
           <p className="mt-2 text-sm text-mut">
-            Share records, check received access, and manage each record’s contract.
+            Share records, check received access, and manage registry permissions.
           </p>
         </div>
         <AccessPanel />

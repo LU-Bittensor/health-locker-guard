@@ -38,6 +38,7 @@ function Records({
   const [records, setRecords] = useState<VisibleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "owned" | "shared">("all");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +95,11 @@ function Records({
     };
   }, [demoUser, ownerId, sharedOnly, refresh]);
 
+  const ownedCount = records.filter((record) => record.owned).length;
+  const filteredRecords = records.filter(
+    (record) => filter === "all" || (filter === "owned" ? record.owned : !record.owned),
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -125,7 +131,7 @@ function Records({
           <span className="text-sm text-mut" role="status">
             {loading
               ? "Loading records…"
-              : `${records.length} record${records.length === 1 ? "" : "s"}`}
+              : `${filteredRecords.length} of ${records.length} records`}
           </span>
           <button
             disabled={loading}
@@ -135,6 +141,34 @@ function Records({
             Refresh records
           </button>
         </div>
+        {!sharedOnly && (
+          <div
+            role="group"
+            aria-label="Filter records by ownership"
+            className="flex flex-wrap gap-2 border-b border-line px-5 py-3"
+          >
+            {(
+              [
+                ["all", "All", records.length],
+                ["owned", "Owned", ownedCount],
+                ["shared", "Shared", records.length - ownedCount],
+              ] as const
+            ).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={filter === value}
+                disabled={loading || !!error}
+                onClick={() => setFilter(value)}
+                className={`rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora disabled:opacity-50 ${
+                  filter === value ? "border-current bg-surface2" : "border-line"
+                } ${value === "owned" ? "text-sky-300" : value === "shared" ? "text-violet-300" : "text-tx"}`}
+              >
+                {label} ({count})
+              </button>
+            ))}
+          </div>
+        )}
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
             <p className="text-red-400">{error}</p>
@@ -147,12 +181,21 @@ function Records({
               </Link>
             )}
           </div>
-        ) : !loading && records.length === 0 ? (
+        ) : !loading && filteredRecords.length === 0 ? (
           <div className="p-8 text-center">
-            <h2 className="font-medium">No records yet</h2>
+            <h2 className="font-medium">
+              {filter === "owned"
+                ? "No owned records"
+                : filter === "shared"
+                  ? "No shared records"
+                  : "No records yet"}
+            </h2>
             <p className="mt-2 text-sm text-mut">
-              No records are available for this account yet. Records you own or that have been
-              shared with you will appear here.
+              {filter === "owned"
+                ? "Records you own will appear here."
+                : filter === "shared"
+                  ? "Records with active access shared with you will appear here."
+                  : "Records you own or that have been shared with you will appear here."}
             </p>
             <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
               Open access ledger →
@@ -170,15 +213,20 @@ function Records({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/50">
-                  {records.map((record) => (
-                    <tr key={`${record.ownerId}:${record.id}`}>
+                  {filteredRecords.map((record) => (
+                    <tr
+                      key={`${record.ownerId}:${record.id}`}
+                      className={record.owned ? "bg-sky-400/5" : "bg-violet-400/5"}
+                    >
                       <td className="px-5 py-5">
                         <p className="font-medium">{record.name}</p>
                         <p className="mt-1 text-xs text-mut">{record.kind}</p>
                       </td>
                       <td className="px-5 py-5 font-mono text-xs text-mut">{record.id}</td>
                       <td className="px-5 py-5">
-                        <span className="text-aurora">
+                        <span
+                          className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${record.owned ? "border-sky-300/30 bg-sky-400/10 text-sky-300" : "border-violet-300/30 bg-violet-400/10 text-violet-300"}`}
+                        >
                           {record.owned ? "Owned by you" : "Shared with you"}
                         </span>
                         {!record.owned && (

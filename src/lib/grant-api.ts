@@ -15,9 +15,12 @@ export type AccessGrant = {
   record_name: string;
   contract_address: string | null;
   deploy_tx: string | null;
+  resource_tx: string | null;
+  resource_id: string;
+  recipient_wallet: string;
   register_tx: string | null;
-  kill_tx: string | null;
-  contract_killed: boolean;
+  revoke_tx: string | null;
+  registry_revoked: boolean;
   chain_enabled: boolean;
   record_ids: string[];
   status: "pending" | "active" | "failed" | "revoking" | "revoked";
