@@ -1,8 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { RecoveryPhraseModal } from "@/components/RecoveryPhraseModal";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { unlockOrCreateVault } from "@/lib/vault-flow";
+import { clearVaultSession, isVaultUnlocked } from "@/lib/vault-session";
 import { fetchRole } from "@/lib/vault-data";
 
 export const Route = createFileRoute("/signin")({
@@ -38,6 +41,9 @@ function SignIn() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [recoveryMnemonic, setRecoveryMnemonic] = useState<string | null>(null);
+  const [recoveryAddress, setRecoveryAddress] = useState("");
+  const [pendingDestination, setPendingDestination] = useState<"/" | "/provider">("/");
 
   const isPatient = role === "patient";
 
@@ -46,6 +52,8 @@ function SignIn() {
     async function redirectSignedInUser() {
       const { data } = await supabase.auth.getUser();
       if (!data.user || cancelled) return;
+      // Require an unlocked vault in this tab; otherwise stay on sign-in to re-enter password.
+      if (!isVaultUnlocked(data.user.id)) return;
       const accountRole = await fetchRole();
       if (cancelled) return;
       navigate({ to: accountRole === "provider" ? "/provider" : "/", replace: true });
@@ -55,6 +63,19 @@ function SignIn() {
       cancelled = true;
     };
   }, [navigate]);
+
+  async function finishWithVault(userId: string, pwd: string, destination: "/" | "/provider") {
+    const result = await unlockOrCreateVault({ userId, password: pwd });
+    if (result.kind === "created") {
+      setRecoveryMnemonic(result.recoveryMnemonic);
+      setRecoveryAddress(result.contents.evmAddress);
+      setPendingDestination(destination);
+      setPassword("");
+      return;
+    }
+    setPassword("");
+    navigate({ to: destination, replace: true });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,24 +115,26 @@ function SignIn() {
 
         if (signUpError) throw signUpError;
 
-        if (data.session) {
-          navigate({ to: isPatient ? "/" : "/provider", replace: true });
+        if (data.session && data.user) {
+          await finishWithVault(data.user.id, password, isPatient ? "/" : "/provider");
           return;
         }
 
-        setMessage("Check your email to confirm your account, then sign in.");
+        setMessage("Check your email to confirm your account, then sign in to create your encrypted vault.");
         setPassword("");
         return;
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
       if (signInError) throw signInError;
+      if (!signInData.user) throw new Error("Sign in succeeded but no user was returned.");
 
       const accountRole = await fetchRole();
       if (accountRole !== role) {
+        clearVaultSession();
         await supabase.auth.signOut();
         setError(
           `This account is registered as a ${accountRole === "provider" ? "care provider" : "patient"}.`,
@@ -119,8 +142,13 @@ function SignIn() {
         return;
       }
 
-      navigate({ to: accountRole === "provider" ? "/provider" : "/", replace: true });
+      await finishWithVault(
+        signInData.user.id,
+        password,
+        accountRole === "provider" ? "/provider" : "/",
+      );
     } catch (caught) {
+      clearVaultSession();
       setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
@@ -130,6 +158,17 @@ function SignIn() {
   return (
     <div className="relative grid min-h-screen place-items-center overflow-hidden bg-ink px-4 font-sans text-tx antialiased">
       <div className="pointer-events-none fixed inset-0 aurora-field" />
+
+      {recoveryMnemonic && (
+        <RecoveryPhraseModal
+          mnemonic={recoveryMnemonic}
+          evmAddress={recoveryAddress}
+          onConfirm={() => {
+            setRecoveryMnemonic(null);
+            navigate({ to: pendingDestination, replace: true });
+          }}
+        />
+      )}
 
       <div className="relative w-full max-w-[420px]">
         <div className="mb-6 flex items-center justify-center gap-2.5">
@@ -144,7 +183,9 @@ function SignIn() {
             {mode === "signin" ? "Sign in to your vault" : "Create your account"}
           </h1>
           <p className="mt-1 text-center text-[12px] text-mut">
-            {mode === "signin" ? "Choose how you&apos;re signing in today" : "Choose the account type you need"}
+            {mode === "signin"
+              ? "Email and password unlock your encrypted key vault"
+              : "Your password encrypts keys stored on Hippius — never sent as key material"}
           </p>
 
           <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg border border-line/70 bg-surface2/40 p-1">
@@ -248,13 +289,13 @@ function SignIn() {
 
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || Boolean(recoveryMnemonic)}
               className="mt-1 w-full rounded-lg gradient-aurora py-2.5 text-[13px] font-semibold text-ink shadow-none transition-transform hover:opacity-95 active:scale-[0.99]"
             >
               {submitting
                 ? mode === "signin"
-                  ? "Signing in…"
-                  : "Creating account…"
+                  ? "Unlocking vault…"
+                  : "Creating vault…"
                 : mode === "signin"
                   ? isPatient
                     ? "Patient Sign In"

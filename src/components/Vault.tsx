@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "rea
 
 import { AccessPanel } from "@/components/AccessPanel";
 import { localGrantDemo } from "@/lib/grant-api";
+import { clearVaultSession } from "@/lib/vault-session";
 
 import sealedFolder from "@/assets/sealed-folder.jpg";
 import { supabase } from "@/integrations/supabase/client";
@@ -94,6 +95,7 @@ export function Vault({
 
   async function handleSignOut() {
     if (localGrantDemo) return;
+    clearVaultSession();
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();

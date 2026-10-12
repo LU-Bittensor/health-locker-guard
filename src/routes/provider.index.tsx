@@ -5,6 +5,7 @@ import { AccessPanel } from "@/components/AccessPanel";
 
 import { supabase } from "@/integrations/supabase/client";
 import { sharedPatients } from "@/lib/patients";
+import { clearVaultSession } from "@/lib/vault-session";
 
 export const Route = createFileRoute("/provider/")({
   head: () => ({
@@ -33,6 +34,7 @@ function PatientList() {
   const queryClient = useQueryClient();
 
   async function handleSignOut() {
+    clearVaultSession();
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
