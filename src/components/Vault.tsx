@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialogs";
+import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
 import {
@@ -35,6 +37,9 @@ function Records({
   ownerId: string | undefined;
   sharedOnly: boolean;
 }) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [viewing, setViewing] = useState<VisibleRecord | null>(null);
+  const [canUpload, setCanUpload] = useState(false);
   const [records, setRecords] = useState<VisibleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -46,9 +51,12 @@ function Records({
     setError("");
     async function load() {
       const account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
-      const [owned, grants] = await Promise.all([
+      const [owned, grants, role] = await Promise.all([
         grantRequest<GrantRecord[]>("/records", demoUser),
         grantRequest<AccessGrant[]>("/grants", demoUser),
+        localGrantDemo
+          ? Promise.resolve(demoUser === "patient" ? "patient" : "provider")
+          : fetchRole(),
       ]);
       const visible = new Map<string, VisibleRecord>();
       if (!sharedOnly)
@@ -73,12 +81,16 @@ function Records({
             id,
             name: grant.record_name,
             kind: grant.scope,
+            ...grant.document,
             ownerId: grant.owner_id,
             ownerName: grant.owner_name,
             owned: false,
           });
       }
-      if (!cancelled) setRecords([...visible.values()]);
+      if (!cancelled) {
+        setRecords([...visible.values()]);
+        setCanUpload(role === "patient");
+      }
     }
     void load()
       .catch((cause: unknown) => {
@@ -116,12 +128,22 @@ function Records({
               : "Your saved records and records shared with your account."}
           </p>
         </div>
-        <Link
-          to="/access"
-          className="rounded-lg gradient-aurora px-4 py-2.5 text-sm font-semibold text-ink"
-        >
-          Manage access
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {canUpload && !sharedOnly && !ownerId && (
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="rounded-lg border border-aurora px-4 py-2.5 text-sm font-semibold text-aurora"
+            >
+              Upload document
+            </button>
+          )}
+          <Link
+            to="/access"
+            className="rounded-lg gradient-aurora px-4 py-2.5 text-sm font-semibold text-ink"
+          >
+            Manage access
+          </Link>
+        </div>
       </div>
       <section
         aria-label="Records"
@@ -219,7 +241,28 @@ function Records({
                       className={record.owned ? "bg-sky-400/5" : "bg-violet-400/5"}
                     >
                       <td className="px-5 py-5">
-                        <p className="font-medium">{record.name}</p>
+                        {record.has_document ? (
+                          <button
+                            onClick={() => setViewing(record)}
+                            className="text-left font-medium text-aurora underline underline-offset-4"
+                          >
+                            {record.name}
+                          </button>
+                        ) : (
+                          <p className="font-medium">{record.name}</p>
+                        )}
+                        {record.tags && record.tags.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {record.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full border border-line px-2 py-0.5 text-xs text-mut"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <p className="mt-1 text-xs text-mut">{record.kind}</p>
                       </td>
                       <td className="px-5 py-5 font-mono text-xs text-mut">{record.id}</td>
@@ -241,9 +284,24 @@ function Records({
           )
         )}
       </section>
+      {uploadOpen && (
+        <UploadDocumentDialog
+          open
+          onOpenChange={setUploadOpen}
+          demoUser={demoUser}
+          onUploaded={() => setRefresh((value) => value + 1)}
+        />
+      )}
+      {viewing && (
+        <DocumentViewer
+          key={viewing.id}
+          record={viewing}
+          demoUser={demoUser}
+          onClose={() => setViewing(null)}
+        />
+      )}
       <p className="text-xs text-mut">
-        Use the access ledger to grant, verify, or revoke access. File uploads and downloads are not
-        connected yet.
+        Click a document name to view it. Use the access ledger to share or revoke access.
       </p>
     </div>
   );

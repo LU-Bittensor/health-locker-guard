@@ -88,6 +88,9 @@ export type Database = {
       }
       records: {
         Row: {
+          file_content: string | null
+          file_mime_type: string | null
+          file_size: number | null
           created_at: string
           id: string
           kind: string
@@ -98,6 +101,9 @@ export type Database = {
           tags: string
         }
         Insert: {
+          file_content?: string | null
+          file_mime_type?: string | null
+          file_size?: number | null
           created_at?: string
           id?: string
           kind: string
@@ -108,6 +114,9 @@ export type Database = {
           tags?: string
         }
         Update: {
+          file_content?: string | null
+          file_mime_type?: string | null
+          file_size?: number | null
           created_at?: string
           id?: string
           kind?: string

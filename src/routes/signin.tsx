@@ -52,7 +52,10 @@ function SignIn() {
       if (cancelled) return;
       navigate({ to: accountRole === "provider" ? "/provider" : "/records", replace: true });
     }
-    void redirectSignedInUser();
+    void redirectSignedInUser().catch((caught) => {
+      if (!cancelled)
+        setError(caught instanceof Error ? caught.message : "Could not load your account.");
+    });
     return () => {
       cancelled = true;
     };
@@ -62,6 +65,13 @@ function SignIn() {
     event.preventDefault();
     setError("");
     setMessage("");
+
+    if (localGrantDemo) {
+      setError(
+        "Account creation and sign-in are unavailable in this demo. Open the local demo to explore sample records.",
+      );
+      return;
+    }
 
     if (!email.trim() || !password) {
       setError("Enter your email and password.");
@@ -97,12 +107,17 @@ function SignIn() {
         if (signUpError) throw signUpError;
 
         if (data.session) {
-          navigate({ to: isPatient ? "/records" : "/provider", replace: true });
+          const accountRole = await fetchRole();
+          await navigate({
+            to: accountRole === "provider" ? "/provider" : "/records",
+            replace: true,
+          });
           return;
         }
 
         setMessage("Check your email to confirm your account, then sign in.");
         setPassword("");
+        setMode("signin");
         return;
       }
 
@@ -198,6 +213,7 @@ function SignIn() {
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder={isPatient ? "Riley Mensah" : "Dr. Avery Chen"}
                   autoComplete="name"
+                  required
                   className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
                 />
               </div>
@@ -217,6 +233,7 @@ function SignIn() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={isPatient ? "you@example.com" : "you@clinic.org"}
                 autoComplete="email"
+                required
                 className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
               />
             </div>
@@ -234,6 +251,7 @@ function SignIn() {
                   onChange={(e) => setOrganization(e.target.value)}
                   placeholder="Northside Clinic"
                   autoComplete="organization"
+                  required
                   className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
                 />
               </div>
@@ -252,17 +270,25 @@ function SignIn() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 autoComplete={mode === "create" ? "new-password" : "current-password"}
+                required
+                minLength={mode === "create" ? 6 : undefined}
                 className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
               />
             </div>
 
             {error && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+              <p
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive"
+              >
                 {error}
               </p>
             )}
             {message && (
-              <p className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora">
+              <p
+                role="status"
+                className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora"
+              >
                 {message}
               </p>
             )}
