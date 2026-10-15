@@ -257,15 +257,28 @@ function ExternalImport() {
               )}
               {stage === "importing" && (
                 <div className="space-y-3">
-                  <label htmlFor="import-progress" className="block text-sm" role="status">
-                    Importing sample records… {progress}%
-                  </label>
-                  <progress
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span id="import-progress-label" className="text-mut">
+                      Importing sample records…
+                    </span>
+                    <span className="font-mono text-xs tabular-nums text-aurora" aria-hidden="true">
+                      {progress}%
+                    </span>
+                  </div>
+                  <div
                     id="import-progress"
-                    value={progress}
-                    max={100}
-                    className="h-3 w-full accent-emerald-400"
-                  />
+                    role="progressbar"
+                    aria-labelledby="import-progress-label"
+                    aria-valuenow={progress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2.5 w-full overflow-hidden rounded-full border border-line/70 bg-surface2/60"
+                  >
+                    <div
+                      className="h-full rounded-full gradient-aurora shadow-[0_0_12px_var(--aurora)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
                   <Button
                     variant="outline"
                     onClick={() => {
