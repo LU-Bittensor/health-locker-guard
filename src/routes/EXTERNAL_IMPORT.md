@@ -1,19 +1,7 @@
-# Epic import frontend handoff
+# Epic import frontend
 
-`/external-import` is an explicitly labeled, memory-only UI preview. It makes no Epic requests and writes no records. A signed-out visitor can sign in to Medilink (returning via the allowlisted `/signin?returnTo=/external-import` path) or use a sample account. Reloading resets the simulation.
+`/external-import` uses a real MediLink Supabase session to start the Epic Sandbox OAuth flow. Demo mode is rejected. `/external-import/callback` submits the returned code/state (or denial) to the authenticated backend and displays its verified result. Tokens remain on the backend; the callback clears its query string from browser history.
 
-Preview paths:
-- Connect → simulate approval → connected → import sample records → progress → results.
-- Connect → cancel / dismiss dialog → cancelled → reconnect.
-- Connect → simulate connection error → retry.
-- Connected → select interrupted-import preview → import → error → retry successfully.
-- During import → cancel → connected. Navigate away to stop preview timers.
+The imports page loads the account-bound saved status on entry, focus, and every 30 seconds. Token exchange success and transfer authorization readiness are separate states. Data transfer is disabled until EHR intake is implemented; there are no sample record counts or simulated imports.
 
-Backend integration still needs an agreed API contract. Suggested operations (not existing endpoints):
-- Start connection: authenticated request creates OAuth state/PKCE and returns an authorization URL; frontend navigates there.
-- Callback: backend validates OAuth state, binds the result to the initiating Medilink account, exchanges the code, and redirects to `/external-import` without tokens in the URL.
-- Connection status: authenticated response identifies connection status, selected sandbox patient, and available data categories.
-- Start import: authenticated request returns a job ID.
-- Import status: returns progress, per-category counts, warnings, and retryable errors. Define cancellation semantics before enabling a real cancel action.
-
-Replace the route's simulated transitions/timers and `src/lib/external-import.ts` sample results with these responses. Remove the sample-account bypass and simulation controls from the live flow. Query parameters must never be treated as proof of a successful connection. Keep Epic credentials/tokens out of this UI. The backend must check account ownership of every connection and job.
+See [backend OAuth setup](../../../backend/EPIC_OAUTH.md) for registration, endpoints and testing. Use the same frontend hostname as the configured callback to preserve the Supabase session. The callback route filename uses TanStack's non-nested suffix so it renders independently of the imports page.

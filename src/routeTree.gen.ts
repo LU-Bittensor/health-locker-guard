@@ -15,6 +15,7 @@ import { Route as ExternalImportRouteImport } from './routes/external-import'
 import { Route as ProviderRouteImport } from './routes/provider'
 import { Route as RecordsRouteImport } from './routes/records'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as ExternalImportCallbackRouteImport } from './routes/external-import_.callback'
 import { Route as ProviderIndexRouteImport } from './routes/provider.index'
 import { Route as ProviderPatientIdRouteImport } from './routes/provider.$patientId'
 
@@ -48,6 +49,11 @@ const SigninRoute = SigninRouteImport.update({
   path: '/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExternalImportCallbackRoute = ExternalImportCallbackRouteImport.update({
+  id: '/external-import_/callback',
+  path: '/external-import/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProviderIndexRoute = ProviderIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/provider': typeof ProviderRouteWithChildren
   '/records': typeof RecordsRoute
   '/signin': typeof SigninRoute
+  '/external-import/callback': typeof ExternalImportCallbackRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
   '/provider/': typeof ProviderIndexRoute
 }
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/external-import': typeof ExternalImportRoute
   '/records': typeof RecordsRoute
   '/signin': typeof SigninRoute
+  '/external-import/callback': typeof ExternalImportCallbackRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
   '/provider': typeof ProviderIndexRoute
 }
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/provider': typeof ProviderRouteWithChildren
   '/records': typeof RecordsRoute
   '/signin': typeof SigninRoute
+  '/external-import_/callback': typeof ExternalImportCallbackRoute
   '/provider/$patientId': typeof ProviderPatientIdRoute
   '/provider/': typeof ProviderIndexRoute
 }
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/provider'
     | '/records'
     | '/signin'
+    | '/external-import/callback'
     | '/provider/$patientId'
     | '/provider/'
   fileRoutesByTo: FileRoutesByTo
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/external-import'
     | '/records'
     | '/signin'
+    | '/external-import/callback'
     | '/provider/$patientId'
     | '/provider'
   id:
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/provider'
     | '/records'
     | '/signin'
+    | '/external-import_/callback'
     | '/provider/$patientId'
     | '/provider/'
   fileRoutesById: FileRoutesById
@@ -128,6 +140,7 @@ export interface RootRouteChildren {
   ProviderRoute: typeof ProviderRouteWithChildren
   RecordsRoute: typeof RecordsRoute
   SigninRoute: typeof SigninRoute
+  ExternalImportCallbackRoute: typeof ExternalImportCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -174,6 +187,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SigninRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/external-import_/callback': {
+      id: '/external-import_/callback'
+      path: '/external-import/callback'
+      fullPath: '/external-import/callback'
+      preLoaderRoute: typeof ExternalImportCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/provider/': {
       id: '/provider/'
       path: '/'
@@ -212,6 +232,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProviderRoute: ProviderRouteWithChildren,
   RecordsRoute: RecordsRoute,
   SigninRoute: SigninRoute,
+  ExternalImportCallbackRoute: ExternalImportCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

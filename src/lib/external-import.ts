@@ -1,17 +1,26 @@
-// Frontend preview only. Replace simulated transitions with verified backend status.
-export type ImportStage =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "cancelled"
-  | "connection-error"
-  | "importing"
-  | "import-error"
-  | "complete";
+import { grantRequest, localGrantDemo } from "@/lib/grant-api";
 
-export const sampleImportResults = [
-  { label: "Medications", count: 3 },
-  { label: "Allergies", count: 2 },
-  { label: "Lab results", count: 5 },
-  { label: "Documents", count: 2 },
-];
+export type EpicConnection = {
+  token_exchange_succeeded: boolean;
+  ready_for_transfer: boolean;
+  reason: string;
+  expires_at?: number;
+  scopes?: string[];
+  patient_context_received?: boolean;
+};
+export function epicRequest<T>(action: string, body?: Record<string, string>) {
+  if (localGrantDemo)
+    return Promise.reject(
+      new Error("Epic requires a real MediLink login. Disable VITE_GRANT_DEMO first."),
+    );
+  return grantRequest<T>(
+    `/external-import/epic/${action}`,
+    "",
+    body === undefined
+      ? {}
+      : {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+  );
+}
