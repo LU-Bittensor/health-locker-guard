@@ -22,3 +22,9 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Backend boundary
+
+Database migrations/tests/configuration and the authoritative Solidity contract now live in `../backend`. Server-only Supabase authentication/admin helpers are also there. See [backend layout](../backend/README.md).
+
+The frontend retains TanStack SSR/startup integration, React UI, and browser API clients. Its database types module re-exports shared schema declarations from `../backend/supabase/types.ts`. Keep both sibling folders available when building the frontend.

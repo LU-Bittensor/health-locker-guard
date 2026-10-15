@@ -7,6 +7,8 @@ import { localGrantDemo } from "@/lib/grant-api";
 import { fetchRole } from "@/lib/vault-data";
 
 export const Route = createFileRoute("/signin")({
+  validateSearch: (search: Record<string, unknown>): { returnTo?: "/external-import" } =>
+    search["returnTo"] === "/external-import" ? { returnTo: "/external-import" } : {},
   head: () => ({
     meta: [
       { title: "Sign In — Medilink" },
@@ -30,6 +32,7 @@ export const Route = createFileRoute("/signin")({
 
 function SignIn() {
   const navigate = useNavigate();
+  const { returnTo } = Route.useSearch();
   const [role, setRole] = useState<"patient" | "provider">("patient");
   const [mode, setMode] = useState<"signin" | "create">("signin");
   const [email, setEmail] = useState("");
@@ -50,7 +53,10 @@ function SignIn() {
       if (!data.user || cancelled) return;
       const accountRole = await fetchRole();
       if (cancelled) return;
-      navigate({ to: accountRole === "provider" ? "/provider" : "/records", replace: true });
+      navigate({
+        to: returnTo ?? (accountRole === "provider" ? "/provider" : "/records"),
+        replace: true,
+      });
     }
     void redirectSignedInUser().catch((caught) => {
       if (!cancelled)
@@ -59,7 +65,7 @@ function SignIn() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, returnTo]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,7 +101,7 @@ function SignIn() {
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/signin`,
+            emailRedirectTo: `${window.location.origin}/signin${returnTo ? "?returnTo=%2Fexternal-import" : ""}`,
             data: {
               role,
               full_name: fullName.trim(),
@@ -109,7 +115,7 @@ function SignIn() {
         if (data.session) {
           const accountRole = await fetchRole();
           await navigate({
-            to: accountRole === "provider" ? "/provider" : "/records",
+            to: returnTo ?? (accountRole === "provider" ? "/provider" : "/records"),
             replace: true,
           });
           return;
@@ -136,7 +142,10 @@ function SignIn() {
         return;
       }
 
-      navigate({ to: accountRole === "provider" ? "/provider" : "/records", replace: true });
+      navigate({
+        to: returnTo ?? (accountRole === "provider" ? "/provider" : "/records"),
+        replace: true,
+      });
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Something went wrong. Please try again.",
@@ -331,6 +340,15 @@ function SignIn() {
                 : "Already have an account? Sign in"}
             </button>
           </form>
+
+          <div className="mt-4 border-t border-line/70 pt-4">
+            <Link
+              to="/external-import"
+              className="block w-full rounded-lg border border-aurora/40 px-3 py-2.5 text-center text-[13px] font-medium text-aurora transition-colors hover:bg-aurora/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora"
+            >
+              Import data from an existing provider
+            </Link>
+          </div>
         </div>
       </div>
     </div>
