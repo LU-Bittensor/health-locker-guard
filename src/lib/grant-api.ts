@@ -3,7 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 // Never include fixture authentication in a production build.
 export const localGrantDemo = import.meta.env.DEV && import.meta.env["VITE_GRANT_DEMO"] === "true";
 const apiBase = import.meta.env["VITE_GRANT_API_URL"] || "http://127.0.0.1:5001";
-export type GrantUser = { id: string; name: string; wallet: string };
+export type GrantUser = {
+  id: string;
+  name: string;
+  wallet: string;
+  x25519PublicKeyB64?: string | null;
+};
 export type GrantRecord = { id: string; name: string; kind: string };
 export type AccessGrant = {
   id: string;

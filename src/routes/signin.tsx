@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { unlockOrCreateVault } from "@/lib/vault-flow";
 import { clearVaultSession, isVaultUnlocked } from "@/lib/vault-session";
 import { fetchRole } from "@/lib/vault-data";
+import { enrollUnlockedVault } from "@/lib/vault-enroll";
 
 export const Route = createFileRoute("/signin")({
   head: () => ({
@@ -66,6 +67,12 @@ function SignIn() {
 
   async function finishWithVault(userId: string, pwd: string, destination: "/" | "/provider") {
     const result = await unlockOrCreateVault({ userId, password: pwd });
+    // Bind public vault EVM address server-side and request faucet drip when configured.
+    try {
+      await enrollUnlockedVault();
+    } catch {
+      // Vault unlock still succeeds if the wallet API is down; Access panel can retry enroll.
+    }
     if (result.kind === "created") {
       setRecoveryMnemonic(result.recoveryMnemonic);
       setRecoveryAddress(result.contents.evmAddress);
