@@ -1,4 +1,4 @@
-/** Minimal AccessRegistry ABI for vault-signed writes. */
+/** Minimal AccessRegistry ABI for vault-signed writes + grant discovery. */
 export const accessRegistryAbi = [
   {
     type: "function",
@@ -58,5 +58,44 @@ export const accessRegistryAbi = [
       { name: "grantee", type: "address" },
     ],
     outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "resources",
+    stateMutability: "view",
+    inputs: [{ name: "resourceId", type: "bytes32" }],
+    outputs: [
+      { name: "owner", type: "address" },
+      { name: "dataHash", type: "bytes32" },
+      { name: "dataCid", type: "string" },
+      { name: "exists", type: "bool" },
+    ],
+  },
+  {
+    type: "event",
+    name: "AccessGrantSet",
+    inputs: [
+      { name: "resourceId", type: "bytes32", indexed: true },
+      { name: "grantee", type: "address", indexed: true },
+      { name: "dataHash", type: "bytes32", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "AccessRevoked",
+    inputs: [
+      { name: "resourceId", type: "bytes32", indexed: true },
+      { name: "grantee", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "ResourceRegistered",
+    inputs: [
+      { name: "resourceId", type: "bytes32", indexed: false },
+      { name: "owner", type: "address", indexed: false },
+      { name: "dataHash", type: "bytes32", indexed: false },
+      { name: "dataCid", type: "string", indexed: false },
+    ],
   },
 ] as const;

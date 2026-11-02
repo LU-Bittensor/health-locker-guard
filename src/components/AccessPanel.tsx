@@ -320,8 +320,8 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
         <>
           <p className="text-mut">
             {chainEnabled
-              ? "Blockchain connected · one contract per recipient and record"
-              : "Off-chain demo · start the API with --chain to deploy contracts"}
+              ? "Blockchain connected · one shared AccessRegistry; each share is an on-chain grant"
+              : "Off-chain demo · start the API with --chain (or set VITE_ACCESS_REGISTRY) for registry grants"}
           </p>
           {chainEnabled && (
             <details className="text-mut">
@@ -360,8 +360,8 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 ))}
               </select>
               <p className="text-mut">
-                Shares each matching record separately. Each recipient–record pair gets its own
-                contract when blockchain mode is enabled.
+                Shares each matching record separately on the shared AccessRegistry (one grant
+                commitment per recipient–record). Upload records first if this list is empty.
               </p>
               <button
                 className={`${button} w-full border-aurora/40 text-aurora`}

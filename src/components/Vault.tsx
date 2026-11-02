@@ -1,9 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 
 import { AccessPanel } from "@/components/AccessPanel";
-import { localGrantDemo } from "@/lib/grant-api";
+import { SharedWithYouPanel } from "@/components/SharedWithYouPanel";
+import {
+  listOwnedRecords,
+  localGrantDemo,
+  uploadOwnedRecord,
+  type GrantRecord,
+} from "@/lib/grant-api";
 import { clearVaultSession } from "@/lib/vault-session";
 
 import sealedFolder from "@/assets/sealed-folder.jpg";
@@ -17,16 +31,27 @@ type RecordItem = {
   source: string;
 };
 
-const initialRecords: RecordItem[] = [
-  { id: "r1", name: "Lipid panel", kind: "Lab report", date: "01/14/25", source: "Quest" },
-  { id: "r2", name: "Chest X-ray", kind: "Imaging", date: "12/02/24", source: "Mercy Hospital" },
-  { id: "r3", name: "A1C trend", kind: "Lab report", date: "10/21/24", source: "Quest" },
-  { id: "r4", name: "ECG — resting", kind: "Cardiology", date: "09/08/24", source: "Dr. Alvarez" },
-  { id: "r5", name: "Immunization log", kind: "History", date: "06/30/24", source: "Dr. Osei" },
-  { id: "r6", name: "MRI — lumbar", kind: "Imaging", date: "04/11/24", source: "Mercy Hospital" },
-];
-
 const recordTypes = ["Lab report", "Imaging", "Cardiology", "History", "Visit note"];
+
+function formatRecordDate(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yy = String(d.getUTCFullYear()).slice(2);
+  return `${mm}/${dd}/${yy}`;
+}
+
+function toRecordItem(row: GrantRecord): RecordItem {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind || "Document",
+    date: formatRecordDate(row.created_at),
+    source: row.has_document === false ? "Metadata only" : "You · uploaded",
+  };
+}
 
 export function Vault({
   showLedger = true,
@@ -44,15 +69,19 @@ export function Vault({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [records, setRecords] = useState<RecordItem[]>(initialRecords);
-  const [selected, setSelected] = useState("r2");
+  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [selected, setSelected] = useState("");
   const [section, setSection] = useState<"records" | "upload" | "permissions">("records");
+  const [loadingRecords, setLoadingRecords] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [recordsError, setRecordsError] = useState("");
+  const [recordsVersion, setRecordsVersion] = useState(0);
 
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [kind, setKind] = useState<string>(recordTypes[0]!);
-  const [date, setDate] = useState("2025-01-14");
-  const [tags, setTags] = useState("cardio, fasting");
+  const [tags, setTags] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sections = showLedger
@@ -60,6 +89,28 @@ export function Vault({
     : (["records", "upload"] as const);
 
   const size = useMemo(() => (file ? (file.size / 1024 / 1024).toFixed(1) : "0.0"), [file]);
+
+  const refreshRecords = useCallback(async () => {
+    setLoadingRecords(true);
+    setRecordsError("");
+    try {
+      const rows = await listOwnedRecords();
+      const items = rows.map(toRecordItem);
+      setRecords(items);
+      setSelected((current) =>
+        current && items.some((item) => item.id === current) ? current : (items[0]?.id ?? ""),
+      );
+    } catch (cause) {
+      setRecords([]);
+      setRecordsError(cause instanceof Error ? cause.message : "Could not load records.");
+    } finally {
+      setLoadingRecords(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRecords();
+  }, [refreshRecords, recordsVersion]);
 
   function pick(f: File | null | undefined) {
     if (f) setFile(f);
@@ -75,22 +126,27 @@ export function Vault({
     pick(e.target.files?.[0]);
   }
 
-  function seal() {
-    const id = `r${Date.now()}`;
-    const [y, m, d] = date.split("-");
-    setRecords((prev) => [
-      {
-        id,
-        name: file ? file.name.replace(/\.[^.]+$/, "") : "Untitled record",
-        kind,
-        date: m && d && y ? `${m}/${d}/${y.slice(2)}` : date,
-        source: "You · uploaded",
-      },
-      ...prev,
-    ]);
-    setSelected(id);
-    setFile(null);
-    if (inputRef.current) inputRef.current.value = "";
+  async function seal() {
+    if (!file) {
+      setUploadError("Choose a PDF, PNG, JPEG, or text file to upload.");
+      return;
+    }
+    setUploading(true);
+    setUploadError("");
+    try {
+      const created = await uploadOwnedRecord({ file, tags, kind });
+      const item = toRecordItem(created);
+      setRecords((prev) => [item, ...prev.filter((row) => row.id !== item.id)]);
+      setSelected(item.id);
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+      setSection("records");
+      setRecordsVersion((n) => n + 1);
+    } catch (cause) {
+      setUploadError(cause instanceof Error ? cause.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleSignOut() {
@@ -202,10 +258,11 @@ export function Vault({
                   <div className="size-3.5 rounded-sm bg-aurora" />
                 </div>
                 <p className="text-[13px] font-medium">{file ? file.name : "Drop files to seal"}</p>
-                <p className="mt-0.5 text-[11px] text-mut">PDF · DICOM · JPG · max 50MB</p>
+                <p className="mt-0.5 text-[11px] text-mut">PDF · PNG · JPEG · text · max 10MB</p>
                 <input
                   ref={inputRef}
                   type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.txt,application/pdf,image/png,image/jpeg,text/plain"
                   className="hidden"
                   onChange={onInput}
                   aria-label="Choose a medical record file"
@@ -221,24 +278,13 @@ export function Vault({
                     id="kind"
                     value={kind}
                     onChange={(e) => setKind(e.target.value)}
+                    disabled={uploading}
                     className="rounded border border-line bg-surface2/60 px-2 py-1 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
                   >
                     {recordTypes.map((t) => (
                       <option key={t}>{t}</option>
                     ))}
                   </select>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="date" className="text-mut">
-                    Date
-                  </label>
-                  <input
-                    id="date"
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="rounded border border-line bg-surface2/60 px-2 py-1 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
-                  />
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <label htmlFor="tags" className="text-mut">
@@ -248,17 +294,31 @@ export function Vault({
                     id="tags"
                     value={tags}
                     onChange={(e) => setTags(e.target.value)}
+                    disabled={uploading}
+                    placeholder="cardio, fasting"
                     className="w-40 rounded border border-line bg-surface2/60 px-2 py-1 text-right font-mono text-[11px] text-tx outline-none focus:border-aurora/60"
                   />
                 </div>
               </div>
 
+              {uploadError && (
+                <p role="alert" className="mt-3 text-[12px] text-aurora">
+                  {uploadError}
+                </p>
+              )}
+
               <button
-                onClick={seal}
-                className="mt-4 w-full rounded-lg gradient-aurora py-2.5 text-[13px] font-semibold text-ink transition-transform active:scale-[0.99]"
+                type="button"
+                onClick={() => void seal()}
+                disabled={uploading || !file}
+                className="mt-4 w-full rounded-lg gradient-aurora py-2.5 text-[13px] font-semibold text-ink transition-transform active:scale-[0.99] disabled:opacity-50"
               >
-                Seal &amp; add record
+                {uploading ? "Uploading…" : "Seal & add record"}
               </button>
+              <p className="mt-2 text-[11px] text-mut">
+                Uploads go to the grant API → Supabase <code className="font-mono">records</code>{" "}
+                (file bytes). Access ledger shares those same rows.
+              </p>
             </div>
           </aside>
 
@@ -269,7 +329,9 @@ export function Vault({
                 <h1 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
                   Records
                 </h1>
-                <span className="font-mono text-[11px] text-mut">{records.length} total</span>
+                <span className="font-mono text-[11px] text-mut">
+                  {loadingRecords ? "…" : `${records.length} total`}
+                </span>
               </div>
               <div className="grid grid-cols-[1.6fr_0.9fr_1fr] gap-2 border-b border-line/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-mut">
                 <span>Type</span>
@@ -277,31 +339,49 @@ export function Vault({
                 <span>Source</span>
               </div>
               <div className="divide-y divide-line/50 text-[13px]">
-                {records.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setSelected(r.id)}
-                    className={`grid w-full grid-cols-[1.6fr_0.9fr_1fr] items-center gap-2 px-4 py-3 text-left transition-colors ${
-                      selected === r.id ? "bg-aurora/[0.05]" : "hover:bg-surface2/40"
-                    }`}
-                  >
-                    <div>
-                      <div className={`font-medium ${selected === r.id ? "text-aurora" : ""}`}>
-                        {r.name}
+                {loadingRecords && (
+                  <p className="px-4 py-6 text-[12px] text-mut">Loading records from the API…</p>
+                )}
+                {!loadingRecords && recordsError && (
+                  <p role="alert" className="px-4 py-6 text-[12px] text-aurora">
+                    {recordsError}
+                  </p>
+                )}
+                {!loadingRecords && !recordsError && records.length === 0 && (
+                  <p className="px-4 py-6 text-[12px] text-mut">
+                    No uploaded records yet. Use Upload to seal a file into your account.
+                  </p>
+                )}
+                {!loadingRecords &&
+                  records.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setSelected(r.id)}
+                      className={`grid w-full grid-cols-[1.6fr_0.9fr_1fr] items-center gap-2 px-4 py-3 text-left transition-colors ${
+                        selected === r.id ? "bg-aurora/[0.05]" : "hover:bg-surface2/40"
+                      }`}
+                    >
+                      <div>
+                        <div className={`font-medium ${selected === r.id ? "text-aurora" : ""}`}>
+                          {r.name}
+                        </div>
+                        <div className="text-[11px] text-mut">{r.kind}</div>
                       </div>
-                      <div className="text-[11px] text-mut">{r.kind}</div>
-                    </div>
-                    <div className="font-mono text-[12px] text-mut">{r.date}</div>
-                    <div className="text-[12px] text-mut">{r.source}</div>
-                  </button>
-                ))}
+                      <div className="font-mono text-[12px] text-mut">{r.date}</div>
+                      <div className="text-[12px] text-mut">{r.source}</div>
+                    </button>
+                  ))}
               </div>
             </div>
+
+            <SharedWithYouPanel refreshKey={recordsVersion} />
           </main>
 
           {showLedger && (
             <aside className="col-span-12 lg:col-span-3">
-              <AccessPanel />
+              {/* Remount when uploads change so the ledger reloads API records. */}
+              <AccessPanel key={recordsVersion} />
             </aside>
           )}
         </div>

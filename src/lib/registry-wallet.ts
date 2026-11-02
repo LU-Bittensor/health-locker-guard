@@ -221,3 +221,115 @@ export function vaultEvmAddress(): Address | null {
 export function toBytes32Hex(value: string): Hex {
   return toHex(stringToBytes(value), { size: 32 });
 }
+
+export type SharedOnChainGrant = {
+  resourceId: Hex;
+  recordId: string | null;
+  dataCid: string;
+  dataHash: Hex;
+  owner: Address;
+  grantee: Address;
+  active: boolean;
+  grantTxHash: Hex | null;
+  blockNumber: bigint | null;
+};
+
+const RECORD_CID_PREFIX = "medilink:record:";
+
+export function recordIdFromDataCid(dataCid: string): string | null {
+  if (!dataCid.startsWith(RECORD_CID_PREFIX)) return null;
+  const id = dataCid.slice(RECORD_CID_PREFIX.length).trim();
+  return id || null;
+}
+
+function publicClientOnly() {
+  return createPublicClient({ chain: localChain, transport: http(rpcUrl) });
+}
+
+/**
+ * MVP: discover records shared with this vault by scanning AccessGrantSet logs
+ * for `grantee`, then confirming live state with hasGrant + resources().
+ */
+export async function listSharedGrantsForVault(
+  grantee?: Address | null,
+): Promise<SharedOnChainGrant[]> {
+  if (!registryConfigured()) return [];
+  const registry = requireRegistry();
+  const address = (grantee || vaultEvmAddress()) as Address | null;
+  if (!address) {
+    throw new Error("Unlock your vault to load on-chain shares.");
+  }
+
+  const publicClient = publicClientOnly();
+  const grantLogs = await publicClient.getContractEvents({
+    address: registry,
+    abi: accessRegistryAbi,
+    eventName: "AccessGrantSet",
+    args: { grantee: address },
+    fromBlock: 0n,
+    toBlock: "latest",
+  });
+
+  // Latest grant log per resource wins for tx/block metadata.
+  const latestByResource = new Map<
+    string,
+    { resourceId: Hex; dataHash: Hex; txHash: Hex | null; blockNumber: bigint | null }
+  >();
+  for (const log of grantLogs) {
+    const resourceId = log.args.resourceId as Hex | undefined;
+    if (!resourceId) continue;
+    latestByResource.set(resourceId.toLowerCase(), {
+      resourceId,
+      dataHash: (log.args.dataHash as Hex) || ("0x" as Hex),
+      txHash: (log.transactionHash as Hex) || null,
+      blockNumber: log.blockNumber ?? null,
+    });
+  }
+
+  const shared: SharedOnChainGrant[] = [];
+  for (const entry of latestByResource.values()) {
+    const active = Boolean(
+      await publicClient.readContract({
+        address: registry,
+        abi: accessRegistryAbi,
+        functionName: "hasGrant",
+        args: [entry.resourceId, address],
+      }),
+    );
+    if (!active) continue;
+
+    const resource = await publicClient.readContract({
+      address: registry,
+      abi: accessRegistryAbi,
+      functionName: "resources",
+      args: [entry.resourceId],
+    });
+    const [owner, onChainHash, dataCid, exists] = resource as [
+      Address,
+      Hex,
+      string,
+      boolean,
+    ];
+    if (!exists) continue;
+
+    shared.push({
+      resourceId: entry.resourceId,
+      recordId: recordIdFromDataCid(dataCid),
+      dataCid,
+      dataHash: onChainHash || entry.dataHash,
+      owner,
+      grantee: address,
+      active: true,
+      grantTxHash: entry.txHash,
+      blockNumber: entry.blockNumber,
+    });
+  }
+
+  shared.sort((a, b) => {
+    const ba = a.blockNumber ?? 0n;
+    const bb = b.blockNumber ?? 0n;
+    if (ba === bb) return a.resourceId.localeCompare(b.resourceId);
+    return ba < bb ? 1 : -1;
+  });
+  return shared;
+}

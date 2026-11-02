@@ -9,7 +9,17 @@ export type GrantUser = {
   wallet: string;
   x25519PublicKeyB64?: string | null;
 };
-export type GrantRecord = { id: string; name: string; kind: string };
+export type GrantRecord = {
+  id: string;
+  name: string;
+  kind: string;
+  owner_id?: string;
+  tags?: string[];
+  mime_type?: string | null;
+  size?: number | null;
+  has_document?: boolean;
+  created_at?: string;
+};
 export type AccessGrant = {
   id: string;
   owner_id: string;
@@ -47,15 +57,34 @@ export async function grantRequest<T>(
     token = data.session?.access_token;
     if (!token) throw new Error("Sign in to manage access.");
   }
+  // Let the browser set multipart boundaries; never force JSON on FormData.
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
   const response = await fetch(`${apiBase}/api${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...init.headers,
     },
   });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || "Grant request failed.");
   return body as T;
+}
+
+/** List documents owned by the signed-in user (grant API → Supabase records). */
+export async function listOwnedRecords(demoUser = "patient"): Promise<GrantRecord[]> {
+  return grantRequest<GrantRecord[]>("/records", demoUser);
+}
+
+/** Upload a document file through the grant API (stores bytes in Supabase file_content). */
+export async function uploadOwnedRecord(
+  input: { file: File; tags?: string; kind?: string },
+  demoUser = "patient",
+): Promise<GrantRecord> {
+  const form = new FormData();
+  form.append("file", input.file, input.file.name);
+  if (input.tags?.trim()) form.append("tags", input.tags.trim());
+  if (input.kind?.trim()) form.append("kind", input.kind.trim());
+  return grantRequest<GrantRecord>("/records", demoUser, { method: "POST", body: form });
 }
