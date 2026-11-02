@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialogs";
+import { SharedWithYouPanel } from "@/components/SharedWithYouPanel";
 import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
@@ -300,6 +301,7 @@ function Records({
           onClose={() => setViewing(null)}
         />
       )}
+      {!sharedOnly && !ownerId && <SharedWithYouPanel refreshKey={refresh} />}
       <p className="text-xs text-mut">
         Click a document name to view it. Use the access ledger to share or revoke access.
       </p>
