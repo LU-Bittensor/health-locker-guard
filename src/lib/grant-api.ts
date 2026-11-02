@@ -3,12 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 // Never include fixture authentication in a production build.
 export const localGrantDemo = import.meta.env.DEV && import.meta.env["VITE_GRANT_DEMO"] === "true";
 const apiBase = import.meta.env["VITE_GRANT_API_URL"] || "http://127.0.0.1:5001";
+
 export type GrantUser = {
   id: string;
   name: string;
   wallet: string;
   x25519PublicKeyB64?: string | null;
 };
+
 export type GrantRecord = {
   id: string;
   name: string;
@@ -20,8 +22,10 @@ export type GrantRecord = {
   has_document?: boolean;
   created_at?: string;
 };
+
 export type AccessGrant = {
   id: string;
+  document?: GrantRecord | null;
   owner_id: string;
   owner_name: string;
   recipient_id: string;
@@ -30,9 +34,12 @@ export type AccessGrant = {
   record_name: string;
   contract_address: string | null;
   deploy_tx: string | null;
+  resource_tx: string | null;
+  resource_id: string;
+  recipient_wallet: string;
   register_tx: string | null;
-  kill_tx: string | null;
-  contract_killed: boolean;
+  revoke_tx: string | null;
+  registry_revoked: boolean;
   chain_enabled: boolean;
   record_ids: string[];
   status: "pending" | "active" | "failed" | "revoking" | "revoked";
@@ -40,11 +47,11 @@ export type AccessGrant = {
   error: string | null;
 };
 
-export async function grantRequest<T>(
+async function authenticatedRequest(
   path: string,
   demoUser: string,
   init: RequestInit = {},
-): Promise<T> {
+): Promise<Response> {
   let token: string | undefined;
   if (localGrantDemo) {
     if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) {
@@ -67,9 +74,37 @@ export async function grantRequest<T>(
       ...init.headers,
     },
   });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "Grant request failed.");
-  return body as T;
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error || "Request failed. Please try again.");
+  }
+  return response;
+}
+
+export async function grantRequest<T>(
+  path: string,
+  demoUser: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await authenticatedRequest(path, demoUser, init);
+  return response.json() as Promise<T>;
+}
+
+export async function uploadDocument(file: File, tags: string, demoUser: string, kind?: string) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("tags", tags);
+  if (kind?.trim()) body.append("kind", kind.trim());
+  return grantRequest<GrantRecord>("/records", demoUser, { method: "POST", body });
+}
+
+export async function viewDocument(id: string, demoUser: string, signal: AbortSignal) {
+  const response = await authenticatedRequest(
+    `/records/${encodeURIComponent(id)}/document`,
+    demoUser,
+    { method: "POST", signal },
+  );
+  return response.blob();
 }
 
 /** List documents owned by the signed-in user (grant API → Supabase records). */
@@ -82,9 +117,5 @@ export async function uploadOwnedRecord(
   input: { file: File; tags?: string; kind?: string },
   demoUser = "patient",
 ): Promise<GrantRecord> {
-  const form = new FormData();
-  form.append("file", input.file, input.file.name);
-  if (input.tags?.trim()) form.append("tags", input.tags.trim());
-  if (input.kind?.trim()) form.append("kind", input.kind.trim());
-  return grantRequest<GrantRecord>("/records", demoUser, { method: "POST", body: form });
+  return uploadDocument(input.file, input.tags?.trim() || "", demoUser, input.kind);
 }

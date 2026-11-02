@@ -70,9 +70,21 @@ export async function insertRecord(input: {
 // Access grants are managed by the authenticated Python service in grant-api.ts.
 
 export async function fetchRole(): Promise<"patient" | "provider"> {
-  const { data: auth } = await supabase.auth.getUser();
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
   const uid = auth.user?.id;
-  if (!uid) return "patient";
-  const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid).limit(1);
-  return (data?.[0]?.role as "patient" | "provider" | undefined) ?? "patient";
+  if (!uid) throw new Error("Sign in to continue.");
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", uid)
+    .single();
+  if (error)
+    throw new Error(
+      "Could not load your account role. Check that the account database migrations are applied, then try signing in again.",
+    );
+  if (data.role !== "patient" && data.role !== "provider") {
+    throw new Error("Your account has an unsupported role.");
+  }
+  return data.role;
 }

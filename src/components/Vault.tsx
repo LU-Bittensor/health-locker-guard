@@ -1,391 +1,310 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type DragEvent,
-} from "react";
-
-import { AccessPanel } from "@/components/AccessPanel";
+import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialogs";
 import { SharedWithYouPanel } from "@/components/SharedWithYouPanel";
+import { fetchRole } from "@/lib/vault-data";
+import { VaultLayout } from "@/components/VaultLayout";
+import { useDemoAccount } from "@/lib/demo-account";
 import {
-  listOwnedRecords,
+  grantRequest,
   localGrantDemo,
-  uploadOwnedRecord,
+  type AccessGrant,
   type GrantRecord,
+  type GrantUser,
 } from "@/lib/grant-api";
-import { clearVaultSession } from "@/lib/vault-session";
 
-import sealedFolder from "@/assets/sealed-folder.jpg";
-import { supabase } from "@/integrations/supabase/client";
+type VisibleRecord = GrantRecord & { ownerId: string; ownerName: string; owned: boolean };
 
-type RecordItem = {
-  id: string;
-  name: string;
-  kind: string;
-  date: string;
-  source: string;
-};
-
-const recordTypes = ["Lab report", "Imaging", "Cardiology", "History", "Visit note"];
-
-function formatRecordDate(iso?: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const yy = String(d.getUTCFullYear()).slice(2);
-  return `${mm}/${dd}/${yy}`;
+export function Vault({ ownerId, sharedOnly = false }: { ownerId?: string; sharedOnly?: boolean }) {
+  const { demoUser } = useDemoAccount();
+  return (
+    <VaultLayout>
+      <Records
+        key={`${demoUser}:${ownerId || "all"}:${sharedOnly}`}
+        demoUser={demoUser}
+        ownerId={ownerId}
+        sharedOnly={sharedOnly}
+      />
+    </VaultLayout>
+  );
 }
 
-function toRecordItem(row: GrantRecord): RecordItem {
-  return {
-    id: row.id,
-    name: row.name,
-    kind: row.kind || "Document",
-    date: formatRecordDate(row.created_at),
-    source: row.has_document === false ? "Metadata only" : "You · uploaded",
-  };
-}
-
-export function Vault({
-  showLedger = true,
-  roleLabel = "Patient",
-  initials = "RM",
-  patientName,
-  backTo,
+function Records({
+  demoUser,
+  ownerId,
+  sharedOnly,
 }: {
-  showLedger?: boolean;
-  roleLabel?: string;
-  initials?: string;
-  patientName?: string;
-  backTo?: "/provider";
+  demoUser: string;
+  ownerId: string | undefined;
+  sharedOnly: boolean;
 }) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-
-  const [records, setRecords] = useState<RecordItem[]>([]);
-  const [selected, setSelected] = useState("");
-  const [section, setSection] = useState<"records" | "upload" | "permissions">("records");
-  const [loadingRecords, setLoadingRecords] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [recordsError, setRecordsError] = useState("");
-  const [recordsVersion, setRecordsVersion] = useState(0);
-
-  const [file, setFile] = useState<File | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [kind, setKind] = useState<string>(recordTypes[0]!);
-  const [tags, setTags] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const sections = showLedger
-    ? (["records", "upload", "permissions"] as const)
-    : (["records", "upload"] as const);
-
-  const size = useMemo(() => (file ? (file.size / 1024 / 1024).toFixed(1) : "0.0"), [file]);
-
-  const refreshRecords = useCallback(async () => {
-    setLoadingRecords(true);
-    setRecordsError("");
-    try {
-      const rows = await listOwnedRecords();
-      const items = rows.map(toRecordItem);
-      setRecords(items);
-      setSelected((current) =>
-        current && items.some((item) => item.id === current) ? current : (items[0]?.id ?? ""),
-      );
-    } catch (cause) {
-      setRecords([]);
-      setRecordsError(cause instanceof Error ? cause.message : "Could not load records.");
-    } finally {
-      setLoadingRecords(false);
-    }
-  }, []);
-
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [viewing, setViewing] = useState<VisibleRecord | null>(null);
+  const [canUpload, setCanUpload] = useState(false);
+  const [records, setRecords] = useState<VisibleRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "owned" | "shared">("all");
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    void refreshRecords();
-  }, [refreshRecords, recordsVersion]);
-
-  function pick(f: File | null | undefined) {
-    if (f) setFile(f);
-  }
-
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragging(false);
-    pick(e.dataTransfer.files?.[0]);
-  }
-
-  function onInput(e: ChangeEvent<HTMLInputElement>) {
-    pick(e.target.files?.[0]);
-  }
-
-  async function seal() {
-    if (!file) {
-      setUploadError("Choose a PDF, PNG, JPEG, or text file to upload.");
-      return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    async function load() {
+      const account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
+      const [owned, grants, role] = await Promise.all([
+        grantRequest<GrantRecord[]>("/records", demoUser),
+        grantRequest<AccessGrant[]>("/grants", demoUser),
+        localGrantDemo
+          ? Promise.resolve(demoUser === "patient" ? "patient" : "provider")
+          : fetchRole(),
+      ]);
+      const visible = new Map<string, VisibleRecord>();
+      if (!sharedOnly)
+        for (const record of owned) {
+          if (!ownerId || account.id === ownerId)
+            visible.set(`${account.id}:${record.id}`, {
+              ...record,
+              ownerId: account.id,
+              ownerName: account.name,
+              owned: true,
+            });
+        }
+      for (const grant of grants) {
+        if (
+          grant.recipient_id !== account.id ||
+          grant.status !== "active" ||
+          (ownerId && grant.owner_id !== ownerId)
+        )
+          continue;
+        for (const id of grant.record_ids)
+          visible.set(`${grant.owner_id}:${id}`, {
+            id,
+            name: grant.record_name,
+            kind: grant.scope,
+            ...grant.document,
+            ownerId: grant.owner_id,
+            ownerName: grant.owner_name,
+            owned: false,
+          });
+      }
+      if (!cancelled) {
+        setRecords([...visible.values()]);
+        setCanUpload(role === "patient");
+      }
     }
-    setUploading(true);
-    setUploadError("");
-    try {
-      const created = await uploadOwnedRecord({ file, tags, kind });
-      const item = toRecordItem(created);
-      setRecords((prev) => [item, ...prev.filter((row) => row.id !== item.id)]);
-      setSelected(item.id);
-      setFile(null);
-      if (inputRef.current) inputRef.current.value = "";
-      setSection("records");
-      setRecordsVersion((n) => n + 1);
-    } catch (cause) {
-      setUploadError(cause instanceof Error ? cause.message : "Upload failed.");
-    } finally {
-      setUploading(false);
-    }
-  }
+    void load()
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setRecords([]);
+          setError(cause instanceof Error ? cause.message : "Could not load records.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [demoUser, ownerId, sharedOnly, refresh]);
 
-  async function handleSignOut() {
-    if (localGrantDemo) return;
-    clearVaultSession();
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/signin", replace: true });
-  }
+  const ownedCount = records.filter((record) => record.owned).length;
+  const filteredRecords = records.filter(
+    (record) => filter === "all" || (filter === "owned" ? record.owned : !record.owned),
+  );
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-ink font-sans text-tx antialiased">
-      <div className="pointer-events-none fixed inset-0 aurora-field" />
-
-      <div className="relative mx-auto max-w-[1440px]">
-        <header className="sticky top-0 z-20 border-b border-line/70 bg-ink/70 backdrop-blur-md">
-          <div className="flex h-14 items-center gap-6 px-6">
-            <div className="flex items-center gap-2.5">
-              <div className="grid size-6 place-items-center rounded-md gradient-aurora">
-                <span className="size-2 rounded-full bg-ink/80" />
-              </div>
-              <span className="text-[15px] font-semibold tracking-tight">Medilink</span>
-              <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-mut">
-                {roleLabel}
-              </span>
-            </div>
-            {backTo && (
-              <Link
-                to={backTo}
-                className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
-              >
-                ← All patients
-              </Link>
-            )}
-            {patientName && (
-              <span className="text-[13px] font-medium">
-                <span className="text-mut">Viewing </span>
-                {patientName}
-              </span>
-            )}
-
-            <nav className="ml-4 flex items-center gap-1 text-[13px]">
-              {sections.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSection(s)}
-                  className={`rounded-md px-3 py-1.5 capitalize transition-colors ${
-                    section === s ? "bg-surface2/70 font-medium text-tx" : "text-mut hover:text-tx"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </nav>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="hidden items-center gap-2 rounded-md border border-line px-3 py-1.5 font-mono text-[12px] text-mut md:flex">
-                <span className="size-1.5 rounded-full bg-aurora animate-vault-pulse" />
-                Vault sealed
-              </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="rounded-md border border-line px-2.5 py-1.5 font-mono text-[11px] text-mut transition-colors hover:border-aurora/50 hover:text-tx"
-              >
-                Sign out
-              </button>
-              <div className="grid size-8 place-items-center rounded-full bg-linear-to-br from-aurora3 to-aurora2 text-[11px] font-semibold text-ink">
-                {initials}
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-12 gap-4 p-4">
-          {/* Upload column */}
-          <aside className="col-span-12 space-y-4 lg:col-span-4">
-            <div className="relative aspect-16/10 overflow-hidden rounded-xl outline-1 -outline-offset-1 outline-tx/5">
-              <img
-                src={sealedFolder}
-                alt="A sealed linen medical folder closed with a wax seal"
-                width={1024}
-                height={640}
-                className="size-full object-cover"
-              />
-            </div>
-
-            <div className="rounded-xl border border-line/70 bg-surface/70 p-4 backdrop-blur-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
-                  Upload record
-                </h2>
-                <span className="font-mono text-[10px] text-mut">{size}MB</span>
-              </div>
-
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={onDrop}
-                onClick={() => inputRef.current?.click()}
-                className={`cursor-pointer rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
-                  dragging ? "border-aurora bg-aurora/10" : "border-aurora/40 bg-aurora/[0.04]"
-                }`}
-              >
-                <div className="mx-auto mb-2.5 grid size-9 place-items-center rounded-lg bg-linear-to-br from-aurora/25 to-aurora2/25">
-                  <div className="size-3.5 rounded-sm bg-aurora" />
-                </div>
-                <p className="text-[13px] font-medium">{file ? file.name : "Drop files to seal"}</p>
-                <p className="mt-0.5 text-[11px] text-mut">PDF · PNG · JPEG · text · max 10MB</p>
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,.txt,application/pdf,image/png,image/jpeg,text/plain"
-                  className="hidden"
-                  onChange={onInput}
-                  aria-label="Choose a medical record file"
-                />
-              </div>
-
-              <div className="mt-3.5 space-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="kind" className="text-mut">
-                    Record type
-                  </label>
-                  <select
-                    id="kind"
-                    value={kind}
-                    onChange={(e) => setKind(e.target.value)}
-                    disabled={uploading}
-                    className="rounded border border-line bg-surface2/60 px-2 py-1 font-mono text-[12px] text-tx outline-none focus:border-aurora/60"
-                  >
-                    {recordTypes.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="tags" className="text-mut">
-                    Tags
-                  </label>
-                  <input
-                    id="tags"
-                    value={tags}
-                    onChange={(e) => setTags(e.target.value)}
-                    disabled={uploading}
-                    placeholder="cardio, fasting"
-                    className="w-40 rounded border border-line bg-surface2/60 px-2 py-1 text-right font-mono text-[11px] text-tx outline-none focus:border-aurora/60"
-                  />
-                </div>
-              </div>
-
-              {uploadError && (
-                <p role="alert" className="mt-3 text-[12px] text-aurora">
-                  {uploadError}
-                </p>
-              )}
-
-              <button
-                type="button"
-                onClick={() => void seal()}
-                disabled={uploading || !file}
-                className="mt-4 w-full rounded-lg gradient-aurora py-2.5 text-[13px] font-semibold text-ink transition-transform active:scale-[0.99] disabled:opacity-50"
-              >
-                {uploading ? "Uploading…" : "Seal & add record"}
-              </button>
-              <p className="mt-2 text-[11px] text-mut">
-                Uploads go to the grant API → Supabase <code className="font-mono">records</code>{" "}
-                (file bytes). Access ledger shares those same rows.
-              </p>
-            </div>
-          </aside>
-
-          {/* Records */}
-          <main className={showLedger ? "col-span-12 lg:col-span-5" : "col-span-12 lg:col-span-8"}>
-            <div className="overflow-hidden rounded-xl border border-line/70 bg-surface/60 backdrop-blur-xl">
-              <div className="flex h-11 items-center justify-between border-b border-line/70 px-4">
-                <h1 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-mut">
-                  Records
-                </h1>
-                <span className="font-mono text-[11px] text-mut">
-                  {loadingRecords ? "…" : `${records.length} total`}
-                </span>
-              </div>
-              <div className="grid grid-cols-[1.6fr_0.9fr_1fr] gap-2 border-b border-line/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-mut">
-                <span>Type</span>
-                <span>Date</span>
-                <span>Source</span>
-              </div>
-              <div className="divide-y divide-line/50 text-[13px]">
-                {loadingRecords && (
-                  <p className="px-4 py-6 text-[12px] text-mut">Loading records from the API…</p>
-                )}
-                {!loadingRecords && recordsError && (
-                  <p role="alert" className="px-4 py-6 text-[12px] text-aurora">
-                    {recordsError}
-                  </p>
-                )}
-                {!loadingRecords && !recordsError && records.length === 0 && (
-                  <p className="px-4 py-6 text-[12px] text-mut">
-                    No uploaded records yet. Use Upload to seal a file into your account.
-                  </p>
-                )}
-                {!loadingRecords &&
-                  records.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setSelected(r.id)}
-                      className={`grid w-full grid-cols-[1.6fr_0.9fr_1fr] items-center gap-2 px-4 py-3 text-left transition-colors ${
-                        selected === r.id ? "bg-aurora/[0.05]" : "hover:bg-surface2/40"
-                      }`}
-                    >
-                      <div>
-                        <div className={`font-medium ${selected === r.id ? "text-aurora" : ""}`}>
-                          {r.name}
-                        </div>
-                        <div className="text-[11px] text-mut">{r.kind}</div>
-                      </div>
-                      <div className="font-mono text-[12px] text-mut">{r.date}</div>
-                      <div className="text-[12px] text-mut">{r.source}</div>
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            <SharedWithYouPanel refreshKey={recordsVersion} />
-          </main>
-
-          {showLedger && (
-            <aside className="col-span-12 lg:col-span-3">
-              {/* Remount when uploads change so the ledger reloads API records. */}
-              <AccessPanel key={recordsVersion} />
-            </aside>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-widest text-aurora">
+            {localGrantDemo ? "Access testing" : "Your vault"}
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {sharedOnly || ownerId ? "Shared records" : "Records"}
+          </h1>
+          <p className="mt-2 max-w-xl text-sm text-mut">
+            {localGrantDemo
+              ? "The demo records used for your access tests. Shared records appear while their grants are active."
+              : "Your saved records and records shared with your account."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canUpload && !sharedOnly && !ownerId && (
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="rounded-lg border border-aurora px-4 py-2.5 text-sm font-semibold text-aurora"
+            >
+              Upload document
+            </button>
           )}
+          <Link
+            to="/access"
+            className="rounded-lg gradient-aurora px-4 py-2.5 text-sm font-semibold text-ink"
+          >
+            Manage access
+          </Link>
         </div>
       </div>
+      <section
+        aria-label="Records"
+        className="overflow-hidden rounded-xl border border-line/70 bg-surface/70"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <span className="text-sm text-mut" role="status">
+            {loading
+              ? "Loading records…"
+              : `${filteredRecords.length} of ${records.length} records`}
+          </span>
+          <button
+            disabled={loading}
+            onClick={() => setRefresh((value) => value + 1)}
+            className="rounded-md border border-line px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            Refresh records
+          </button>
+        </div>
+        {!sharedOnly && (
+          <div
+            role="group"
+            aria-label="Filter records by ownership"
+            className="flex flex-wrap gap-2 border-b border-line px-5 py-3"
+          >
+            {(
+              [
+                ["all", "All", records.length],
+                ["owned", "Owned", ownedCount],
+                ["shared", "Shared", records.length - ownedCount],
+              ] as const
+            ).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={filter === value}
+                disabled={loading || !!error}
+                onClick={() => setFilter(value)}
+                className={`rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora disabled:opacity-50 ${
+                  filter === value ? "border-current bg-surface2" : "border-line"
+                } ${value === "owned" ? "text-sky-300" : value === "shared" ? "text-violet-300" : "text-tx"}`}
+              >
+                {label} ({count})
+              </button>
+            ))}
+          </div>
+        )}
+        {error ? (
+          <div role="alert" className="space-y-2 p-6 text-sm">
+            <p className="text-red-400">{error}</p>
+            <p className="text-mut">
+              Resolve the connection or account issue above, then refresh records.
+            </p>
+            {!localGrantDemo && (
+              <Link to="/signin" className="text-aurora underline">
+                Sign in
+              </Link>
+            )}
+          </div>
+        ) : !loading && filteredRecords.length === 0 ? (
+          <div className="p-8 text-center">
+            <h2 className="font-medium">
+              {filter === "owned"
+                ? "No owned records"
+                : filter === "shared"
+                  ? "No shared records"
+                  : "No records yet"}
+            </h2>
+            <p className="mt-2 text-sm text-mut">
+              {filter === "owned"
+                ? "Records you own will appear here."
+                : filter === "shared"
+                  ? "Records with active access shared with you will appear here."
+                  : "Records you own or that have been shared with you will appear here."}
+            </p>
+            <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
+              Open access ledger →
+            </Link>
+          </div>
+        ) : (
+          !loading && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-line/50 text-xs uppercase tracking-wide text-mut">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Record</th>
+                    <th className="px-5 py-3 font-medium">Record ID</th>
+                    <th className="px-5 py-3 font-medium">Access</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line/50">
+                  {filteredRecords.map((record) => (
+                    <tr
+                      key={`${record.ownerId}:${record.id}`}
+                      className={record.owned ? "bg-sky-400/5" : "bg-violet-400/5"}
+                    >
+                      <td className="px-5 py-5">
+                        {record.has_document ? (
+                          <button
+                            onClick={() => setViewing(record)}
+                            className="text-left font-medium text-aurora underline underline-offset-4"
+                          >
+                            {record.name}
+                          </button>
+                        ) : (
+                          <p className="font-medium">{record.name}</p>
+                        )}
+                        {record.tags && record.tags.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {record.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full border border-line px-2 py-0.5 text-xs text-mut"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="mt-1 text-xs text-mut">{record.kind}</p>
+                      </td>
+                      <td className="px-5 py-5 font-mono text-xs text-mut">{record.id}</td>
+                      <td className="px-5 py-5">
+                        <span
+                          className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${record.owned ? "border-sky-300/30 bg-sky-400/10 text-sky-300" : "border-violet-300/30 bg-violet-400/10 text-violet-300"}`}
+                        >
+                          {record.owned ? "Owned by you" : "Shared with you"}
+                        </span>
+                        {!record.owned && (
+                          <p className="mt-1 text-xs text-mut">From {record.ownerName}</p>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </section>
+      {uploadOpen && (
+        <UploadDocumentDialog
+          open
+          onOpenChange={setUploadOpen}
+          demoUser={demoUser}
+          onUploaded={() => setRefresh((value) => value + 1)}
+        />
+      )}
+      {viewing && (
+        <DocumentViewer
+          key={viewing.id}
+          record={viewing}
+          demoUser={demoUser}
+          onClose={() => setViewing(null)}
+        />
+      )}
+      {!sharedOnly && !ownerId && <SharedWithYouPanel refreshKey={refresh} />}
+      <p className="text-xs text-mut">
+        Click a document name to view it. Use the access ledger to share or revoke access.
+      </p>
     </div>
   );
 }

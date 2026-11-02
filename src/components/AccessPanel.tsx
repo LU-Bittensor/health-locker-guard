@@ -166,9 +166,12 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           record_name: record.name,
           contract_address: import.meta.env["VITE_ACCESS_REGISTRY"] || null,
           deploy_tx: null,
+          resource_tx: null,
+          resource_id: resourceId,
+          recipient_wallet: granteeUser.wallet,
           register_tx: null,
-          kill_tx: null,
-          contract_killed: false,
+          revoke_tx: null,
+          registry_revoked: false,
           chain_enabled: true,
           record_ids: [record.id],
           status: "active",
@@ -407,16 +410,16 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                   <p className="break-all">{grant.register_tx}</p>
                 </details>
               )}
-              {grant.contract_killed && <p>Contract permanently disabled</p>}
-              {grant.kill_tx && (
+              {grant.registry_revoked && <p>Recipient grant removed from registry</p>}
+              {grant.revoke_tx && (
                 <details className="text-mut">
                   <summary>Revocation transaction</summary>
-                  <p className="break-all">{grant.kill_tx}</p>
+                  <p className="break-all">{grant.revoke_tx}</p>
                 </details>
               )}
               {grant.status === "revoking" && (
                 <p className="text-mut">
-                  API access blocked. Contract disablement awaiting confirmation.
+                  API access blocked. Registry revocation awaiting confirmation.
                 </p>
               )}
               {grant.owner_id === me.id && grant.status === "pending" && (

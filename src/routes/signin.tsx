@@ -1,15 +1,18 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { RecoveryPhraseModal } from "@/components/RecoveryPhraseModal";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { localGrantDemo } from "@/lib/grant-api";
 import { unlockOrCreateVault } from "@/lib/vault-flow";
 import { clearVaultSession, isVaultUnlocked } from "@/lib/vault-session";
 import { fetchRole } from "@/lib/vault-data";
 import { enrollUnlockedVault } from "@/lib/vault-enroll";
 
 export const Route = createFileRoute("/signin")({
+  validateSearch: (search: Record<string, unknown>): { returnTo?: "/external-import" } =>
+    search["returnTo"] === "/external-import" ? { returnTo: "/external-import" } : {},
   head: () => ({
     meta: [
       { title: "Sign In — Medilink" },
@@ -33,6 +36,7 @@ export const Route = createFileRoute("/signin")({
 
 function SignIn() {
   const navigate = useNavigate();
+  const { returnTo } = Route.useSearch();
   const [role, setRole] = useState<"patient" | "provider">("patient");
   const [mode, setMode] = useState<"signin" | "create">("signin");
   const [email, setEmail] = useState("");
@@ -44,11 +48,19 @@ function SignIn() {
   const [submitting, setSubmitting] = useState(false);
   const [recoveryMnemonic, setRecoveryMnemonic] = useState<string | null>(null);
   const [recoveryAddress, setRecoveryAddress] = useState("");
-  const [pendingDestination, setPendingDestination] = useState<"/" | "/provider">("/");
+  const [pendingDestination, setPendingDestination] = useState<
+    "/" | "/provider" | "/records" | "/external-import"
+  >("/records");
 
   const isPatient = role === "patient";
 
+  function destinationForRole(accountRole: string) {
+    if (returnTo) return returnTo;
+    return accountRole === "provider" ? "/provider" : "/records";
+  }
+
   useEffect(() => {
+    if (localGrantDemo) return;
     let cancelled = false;
     async function redirectSignedInUser() {
       const { data } = await supabase.auth.getUser();
@@ -57,15 +69,22 @@ function SignIn() {
       if (!isVaultUnlocked(data.user.id)) return;
       const accountRole = await fetchRole();
       if (cancelled) return;
-      navigate({ to: accountRole === "provider" ? "/provider" : "/", replace: true });
+      navigate({ to: destinationForRole(accountRole), replace: true });
     }
-    void redirectSignedInUser();
+    void redirectSignedInUser().catch((caught) => {
+      if (!cancelled)
+        setError(caught instanceof Error ? caught.message : "Could not load your account.");
+    });
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, returnTo]);
 
-  async function finishWithVault(userId: string, pwd: string, destination: "/" | "/provider") {
+  async function finishWithVault(
+    userId: string,
+    pwd: string,
+    destination: "/" | "/provider" | "/records" | "/external-import",
+  ) {
     const result = await unlockOrCreateVault({ userId, password: pwd });
     // Bind public vault EVM address server-side and request faucet drip when configured.
     try {
@@ -89,6 +108,13 @@ function SignIn() {
     setError("");
     setMessage("");
 
+    if (localGrantDemo) {
+      setError(
+        "Account creation and sign-in are unavailable in this demo. Open the local demo to explore sample records.",
+      );
+      return;
+    }
+
     if (!email.trim() || !password) {
       setError("Enter your email and password.");
       return;
@@ -111,7 +137,7 @@ function SignIn() {
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/signin`,
+            emailRedirectTo: `${window.location.origin}/signin${returnTo ? "?returnTo=%2Fexternal-import" : ""}`,
             data: {
               role,
               full_name: fullName.trim(),
@@ -123,12 +149,19 @@ function SignIn() {
         if (signUpError) throw signUpError;
 
         if (data.session && data.user) {
-          await finishWithVault(data.user.id, password, isPatient ? "/" : "/provider");
+          await finishWithVault(
+            data.user.id,
+            password,
+            returnTo ?? (isPatient ? "/records" : "/provider"),
+          );
           return;
         }
 
-        setMessage("Check your email to confirm your account, then sign in to create your encrypted vault.");
+        setMessage(
+          "Check your email to confirm your account, then sign in to create your encrypted vault.",
+        );
         setPassword("");
+        setMode("signin");
         return;
       }
 
@@ -149,11 +182,7 @@ function SignIn() {
         return;
       }
 
-      await finishWithVault(
-        signInData.user.id,
-        password,
-        accountRole === "provider" ? "/provider" : "/",
-      );
+      await finishWithVault(signInData.user.id, password, destinationForRole(accountRole));
     } catch (caught) {
       clearVaultSession();
       setError(caught instanceof Error ? caught.message : "Something went wrong. Please try again.");
@@ -208,15 +237,22 @@ function SignIn() {
                 onClick={() => setRole(value)}
                 aria-pressed={role === value}
                 className={`rounded-md px-2 py-2 text-[12px] font-medium transition-colors ${
-                  role === value
-                    ? "bg-aurora/15 text-aurora"
-                    : "text-mut hover:text-tx"
+                  role === value ? "bg-aurora/15 text-aurora" : "text-mut hover:text-tx"
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+
+          {localGrantDemo && (
+            <Link
+              to="/records"
+              className="mt-4 block rounded-md border border-aurora/40 px-3 py-2 text-center text-sm text-aurora"
+            >
+              Open local demo
+            </Link>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
             {mode === "create" && (
@@ -233,6 +269,7 @@ function SignIn() {
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder={isPatient ? "Riley Mensah" : "Dr. Avery Chen"}
                   autoComplete="name"
+                  required
                   className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
                 />
               </div>
@@ -252,6 +289,7 @@ function SignIn() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={isPatient ? "you@example.com" : "you@clinic.org"}
                 autoComplete="email"
+                required
                 className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
               />
             </div>
@@ -269,6 +307,7 @@ function SignIn() {
                   onChange={(e) => setOrganization(e.target.value)}
                   placeholder="Northside Clinic"
                   autoComplete="organization"
+                  required
                   className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
                 />
               </div>
@@ -287,12 +326,28 @@ function SignIn() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 autoComplete={mode === "create" ? "new-password" : "current-password"}
+                required
+                minLength={mode === "create" ? 6 : undefined}
                 className="w-full rounded-md border border-line bg-surface2/60 px-2.5 py-2 text-[13px] text-tx outline-none placeholder:text-mut/70 focus:border-aurora/60"
               />
             </div>
 
-            {error && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{error}</p>}
-            {message && <p className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora">{message}</p>}
+            {error && (
+              <p
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive"
+              >
+                {error}
+              </p>
+            )}
+            {message && (
+              <p
+                role="status"
+                className="rounded-md border border-aurora/40 bg-aurora/[0.06] px-3 py-2 text-[12px] text-aurora"
+              >
+                {message}
+              </p>
+            )}
 
             <Button
               type="submit"
@@ -332,6 +387,15 @@ function SignIn() {
                 : "Already have an account? Sign in"}
             </button>
           </form>
+
+          <div className="mt-4 border-t border-line/70 pt-4">
+            <Link
+              to="/external-import"
+              className="block w-full rounded-lg border border-aurora/40 px-3 py-2.5 text-center text-[13px] font-medium text-aurora transition-colors hover:bg-aurora/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora"
+            >
+              Import data from an existing provider
+            </Link>
+          </div>
         </div>
       </div>
     </div>
