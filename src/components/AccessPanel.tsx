@@ -22,6 +22,7 @@ import {
   proveAccessOnChain,
   registerResource,
   registryConfigured,
+  resolveRegistryAddress,
   revokeAccessOnChain,
   resourceIdFromRecord,
 } from "@/lib/registry-wallet";
@@ -174,7 +175,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           recipient_name: granteeUser.name,
           scope: record.kind,
           record_name: record.name,
-          contract_address: import.meta.env["VITE_ACCESS_REGISTRY"] || null,
+          contract_address: await resolveRegistryAddress(),
           deploy_tx: null,
           resource_tx: null,
           resource_id: resourceId,
@@ -189,11 +190,18 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           error: null,
         });
       }
+      const indexed = await grantRequest<AccessGrant[]>("/grants", demoUser);
+      if (
+        created.some(
+          (grant) => !indexed.some((item) => item.id === grant.id && item.status === "active"),
+        )
+      ) {
+        throw new Error(
+          "The wallet transaction confirmed, but the API could not verify the shared document. Refresh the access ledger before retrying.",
+        );
+      }
       if (!mounted.current) return;
-      setGrants((current) => [
-        ...created,
-        ...current.filter((item) => !created.some((grant) => grant.id === item.id)),
-      ]);
+      setGrants(indexed);
       setMessage(
         `Granted ${created.length} record(s) on AccessRegistry from vault wallet ${me?.wallet}.`,
       );

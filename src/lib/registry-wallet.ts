@@ -14,6 +14,7 @@ import { hardhat } from "viem/chains";
 import { accessRegistryAbi } from "@/lib/registry-abi";
 import { getVaultSession } from "@/lib/vault-session";
 import { ensureGas } from "@/lib/faucet";
+import { grantRequest } from "@/lib/grant-api";
 
 const rpcUrl = import.meta.env["VITE_EVM_RPC_URL"] || "http://127.0.0.1:8545";
 const chainId = Number(import.meta.env["VITE_EVM_CHAIN_ID"] || "31337");
@@ -25,8 +26,19 @@ const localChain = {
   rpcUrls: { default: { http: [rpcUrl] } },
 } as const;
 
-function requireRegistry(): Address {
-  if (!registryAddress || !registryAddress.startsWith("0x")) {
+export async function resolveRegistryAddress(): Promise<Address> {
+  if (chainId === 31337) {
+    const result = await grantRequest<{ address: string; chain_id: number }>(
+      "/registry/resolve",
+      "",
+      { method: "POST", body: "{}" },
+    );
+    if (result.chain_id !== chainId || !/^0x[0-9a-fA-F]{40}$/.test(result.address)) {
+      throw new Error("The API returned an incompatible AccessRegistry configuration.");
+    }
+    return result.address as Address;
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(registryAddress)) {
     throw new Error("Set VITE_ACCESS_REGISTRY to the deployed AccessRegistry address.");
   }
   return registryAddress;
@@ -93,7 +105,7 @@ export async function registerResource(params: {
   recordId: string;
   dataCid: string;
 }): Promise<Hex> {
-  const registry = requireRegistry();
+  const registry = await resolveRegistryAddress();
   const { walletClient, publicClient, account } = clients();
   const resourceId = resourceIdFromRecord(params.recordId);
   const dataHash = dataHashFromCid(params.dataCid);
@@ -116,7 +128,7 @@ export async function grantAccessOnChain(params: {
   grantee: Address;
   commitment: Hex;
 }): Promise<Hex> {
-  const registry = requireRegistry();
+  const registry = await resolveRegistryAddress();
   const { walletClient, publicClient, account } = clients();
   const resourceId = resourceIdFromRecord(params.recordId);
   return withGas(async () => {
@@ -137,7 +149,7 @@ export async function revokeAccessOnChain(params: {
   recordId: string;
   grantee: Address;
 }): Promise<Hex> {
-  const registry = requireRegistry();
+  const registry = await resolveRegistryAddress();
   const { walletClient, publicClient, account } = clients();
   const resourceId = resourceIdFromRecord(params.recordId);
   return withGas(async () => {
@@ -158,7 +170,7 @@ export async function proveAccessOnChain(params: {
   recordId: string;
   commitment: Hex;
 }): Promise<{ challengeTx: Hex; verifyTx: Hex; granted: boolean }> {
-  const registry = requireRegistry();
+  const registry = await resolveRegistryAddress();
   const { walletClient, publicClient, account } = clients();
   const resourceId = resourceIdFromRecord(params.recordId);
   return withGas(async () => {
@@ -209,7 +221,7 @@ export async function proveAccessOnChain(params: {
 }
 
 export function registryConfigured(): boolean {
-  return Boolean(registryAddress && registryAddress.startsWith("0x"));
+  return chainId === 31337 || Boolean(registryAddress && registryAddress.startsWith("0x"));
 }
 
 export function vaultEvmAddress(): Address | null {
@@ -254,7 +266,7 @@ export async function listSharedGrantsForVault(
   grantee?: Address | null,
 ): Promise<SharedOnChainGrant[]> {
   if (!registryConfigured()) return [];
-  const registry = requireRegistry();
+  const registry = await resolveRegistryAddress();
   const address = (grantee || vaultEvmAddress()) as Address | null;
   if (!address) {
     throw new Error("Unlock your vault to load on-chain shares.");
@@ -304,12 +316,7 @@ export async function listSharedGrantsForVault(
       functionName: "resources",
       args: [entry.resourceId],
     });
-    const [owner, onChainHash, dataCid, exists] = resource as [
-      Address,
-      Hex,
-      string,
-      boolean,
-    ];
+    const [owner, onChainHash, dataCid, exists] = resource as [Address, Hex, string, boolean];
     if (!exists) continue;
 
     shared.push({
