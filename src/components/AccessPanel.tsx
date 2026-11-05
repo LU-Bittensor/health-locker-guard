@@ -22,7 +22,6 @@ import {
   proveAccessOnChain,
   registerResource,
   registryConfigured,
-  resolveRegistryAddress,
   revokeAccessOnChain,
   resourceIdFromRecord,
 } from "@/lib/registry-wallet";
@@ -152,7 +151,6 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       const session = getVaultSession();
       if (!session || session.userId !== me?.id)
         throw new Error("Unlock your vault to sign grant transactions.");
-      let lastTx: string | null = null;
       for (const record of selected) {
         const dataCid = `medilink:record:${record.id}`;
         await registerResource({ recordId: record.id, dataCid });
@@ -162,39 +160,21 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           grantee: granteeUser.wallet as Address,
           resourceId,
         });
-        lastTx = await grantAccessOnChain({
+        await grantAccessOnChain({
           recordId: record.id,
           grantee: granteeUser.wallet as Address,
           commitment,
         });
       }
-      // Dual-write: persist API grant rows so Shared can open Supabase file bytes.
-      const result = await grantRequest<{ grants: AccessGrant[] }>("/grants", demoUser, {
-        method: "POST",
-        body: JSON.stringify({
-          recipient_id: recipient,
-          recipient_name: granteeUser.name,
-          scope: record.kind,
-          record_name: record.name,
-          contract_address: await resolveRegistryAddress(),
-          deploy_tx: null,
-          resource_tx: null,
-          resource_id: resourceId,
-          recipient_wallet: granteeUser.wallet,
-          register_tx: null,
-          revoke_tx: null,
-          registry_revoked: false,
-          chain_enabled: true,
-          record_ids: [record.id],
-          status: "active",
-          tx_hash: tx,
-          error: null,
-        });
-      }
+      // The API discovers wallet grants from the registry and verifies document
+      // ownership. Do not create a second, independently authorized API grant.
       const indexed = await grantRequest<AccessGrant[]>("/grants", demoUser);
       if (
-        created.some(
-          (grant) => !indexed.some((item) => item.id === grant.id && item.status === "active"),
+        selected.some(
+          (record) =>
+            !indexed.some(
+              (grant) => grant.id === `${record.id}:${recipient}` && grant.status === "active",
+            ),
         )
       ) {
         throw new Error(
@@ -204,7 +184,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       if (!mounted.current) return;
       setGrants(indexed);
       setMessage(
-        `Granted ${result.grants.length} record(s) on AccessRegistry and registered API delivery for vault ${me?.wallet}.`,
+        `Granted ${selected.length} record(s) on AccessRegistry from vault wallet ${me?.wallet}.`,
       );
       return;
     }
