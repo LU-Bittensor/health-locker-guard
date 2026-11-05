@@ -1,5 +1,6 @@
 import { grantRequest } from "@/lib/grant-api";
 import { ensureGas } from "@/lib/faucet";
+import { supabase } from "@/integrations/supabase/client";
 import {
   getUnlockedEvmAddress,
   getUnlockedX25519PublicKeyB64,
@@ -20,6 +21,11 @@ export async function enrollUnlockedVault(demoUser = "patient"): Promise<Enrolle
   const x25519PublicKeyB64 = getUnlockedX25519PublicKeyB64();
   if (!session || !evmAddress) {
     throw new Error("Unlock your vault before enrolling the EVM wallet.");
+  }
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (data.session?.user.id !== session.userId) {
+    throw new Error("Unlock the vault for the signed-in account before enrolling its wallet.");
   }
 
   const enrolled = await grantRequest<EnrolledWallet>("/enroll", demoUser, {

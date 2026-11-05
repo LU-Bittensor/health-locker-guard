@@ -21,6 +21,7 @@ export type GrantRecord = {
   size?: number | null;
   has_document?: boolean;
   created_at?: string;
+  share_note?: string;
 };
 
 export type AccessGrant = {
