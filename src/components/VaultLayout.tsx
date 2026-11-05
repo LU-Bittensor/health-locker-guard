@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { demoAccounts, useDemoAccount, type DemoAccount } from "@/lib/demo-account";
 import { localGrantDemo } from "@/lib/grant-api";
 import { supabase } from "@/integrations/supabase/client";
+import { clearVaultSession } from "@/lib/vault-session";
 
 export function VaultLayout({ children }: { children: ReactNode }) {
   const { demoUser, setDemoUser } = useDemoAccount();
@@ -11,7 +12,8 @@ export function VaultLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   async function signOut() {
-    const { error: signOutError } = await supabase.auth.signOut();
+    clearVaultSession();
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
     if (signOutError) {
       setError(signOutError.message);
       return;
@@ -47,6 +49,11 @@ export function VaultLayout({ children }: { children: ReactNode }) {
               >
                 Access ledger
               </Link>
+              {!localGrantDemo && (
+                <Link to="/external-import" className="rounded-md px-3 py-2 text-mut hover:text-tx">
+                  Import records
+                </Link>
+              )}
             </nav>
             <div className="ml-auto">
               {localGrantDemo ? (

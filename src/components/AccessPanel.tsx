@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDemoAccount } from "@/lib/demo-account";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
-import type { Address, Hex } from "viem";
+import { supabase } from "@/integrations/supabase/client";
+import { DocumentViewer } from "@/components/DocumentDialogs";
 import {
   grantRequest,
   localGrantDemo,
@@ -8,8 +11,11 @@ import {
   type GrantRecord,
   type GrantUser,
 } from "@/lib/grant-api";
+
+import type { Address, Hex } from "viem";
 import { enrollUnlockedVault } from "@/lib/vault-enroll";
 import { getVaultSession } from "@/lib/vault-session";
+import { isWalletRegistryGrant, sharingMode } from "@/lib/sharing-mode";
 import {
   grantAccessOnChain,
   interimCommitment,
@@ -24,42 +30,47 @@ const field = "w-full rounded-md border border-line bg-surface2 px-2.5 py-2 text
 const button = "rounded-md border border-line px-2.5 py-1.5 text-[12px] disabled:opacity-40";
 
 export function AccessPanel() {
-  const [demoUser, setDemoUser] = useState("patient");
-  // Remount on demo identity changes so no previous account's data remains visible.
+  const { demoUser } = useDemoAccount();
+  const [account, setAccount] = useState<string | null>(null);
+  const [checking, setChecking] = useState(!localGrantDemo);
+  useEffect(() => {
+    if (localGrantDemo) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccount(session?.user.id ?? null);
+      setChecking(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   return (
-    <section className="rounded-xl border border-line/70 bg-surface/80 p-4 text-tx">
-      <h2 className="text-[13px] font-semibold uppercase tracking-wider">Access ledger</h2>
-      {localGrantDemo && (
-        <div className="my-3 space-y-2 rounded-md border border-aurora/40 p-2">
-          <p className="text-[12px] text-aurora">Local demo · fixture accounts and records</p>
-          <label className="text-[12px]" htmlFor="demo-account">
-            Test as
-          </label>
-          <select
-            id="demo-account"
-            className={field}
-            value={demoUser}
-            onChange={(event) => setDemoUser(event.target.value)}
-          >
-            <option value="patient">Demo patient</option>
-            <option value="clinician">Demo clinician</option>
-            <option value="outsider">Unrelated user</option>
-          </select>
-        </div>
+    <section
+      aria-label="Manage record access"
+      className="rounded-xl border border-line/70 bg-surface/80 p-4 text-tx sm:p-6"
+    >
+      {checking ? (
+        <p role="status">Checking your account…</p>
+      ) : !localGrantDemo && !account ? (
+        <Link to="/signin" className="text-aurora underline">
+          Sign in to manage access
+        </Link>
+      ) : (
+        <AccountGrants key={account ?? demoUser} demoUser={demoUser} />
       )}
-      <AccountGrants key={demoUser} demoUser={demoUser} />
     </section>
   );
 }
 
 function AccountGrants({ demoUser }: { demoUser: string }) {
   const [chainEnabled, setChainEnabled] = useState(false);
+  const [uploadsConfigured, setUploadsConfigured] = useState(true);
+  const [viewing, setViewing] = useState<GrantRecord | null>(null);
   const [me, setMe] = useState<GrantUser | null>(null);
   const [users, setUsers] = useState<GrantUser[]>([]);
   const [records, setRecords] = useState<GrantRecord[]>([]);
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [recipient, setRecipient] = useState("");
-  const [scope, setScope] = useState("All records");
+  const [scope, setScope] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -68,33 +79,31 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   const mutation = useRef(false);
 
   const refresh = useCallback(async () => {
-    // Prefer vault public keys (non-custodial); falls back to empty enroll read.
-    let account: GrantUser;
-    try {
-      const enrolled = await enrollUnlockedVault(demoUser);
-      account = { id: enrolled.id, name: enrolled.name, wallet: enrolled.wallet };
-    } catch {
-      account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
-    }
-    const nextUsers = await grantRequest<GrantUser[]>("/users", demoUser);
-    const health = await grantRequest<{ chain: boolean; faucet?: boolean }>("/health", demoUser);
-    let nextRecords: GrantRecord[] = [];
-    let nextGrants: AccessGrant[] = [];
-    try {
-      nextRecords = await grantRequest<GrantRecord[]>("/records", demoUser);
-    } catch {
-      nextRecords = [];
-    }
-    try {
-      nextGrants = await grantRequest<AccessGrant[]>("/grants", demoUser);
-    } catch {
-      nextGrants = [];
-    }
+    // Keep the authenticated report API compatible with vault-enrolled accounts.
+    const session = getVaultSession();
+    const account =
+      !localGrantDemo && session
+        ? await enrollUnlockedVault(demoUser)
+        : await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
+    const [nextUsers, nextRecords, nextGrants, health] = await Promise.all([
+      grantRequest<GrantUser[]>("/users", demoUser),
+      grantRequest<GrantRecord[]>("/records", demoUser),
+      grantRequest<AccessGrant[]>("/grants", demoUser),
+      grantRequest<{ chain: boolean; document_uploads_configured?: boolean }>("/health", demoUser),
+    ]);
     if (!mounted.current) return;
     setMe(account);
-    setChainEnabled(health.chain || registryConfigured());
+    setChainEnabled(health.chain);
+    setUploadsConfigured(health.document_uploads_configured !== false);
     setUsers(nextUsers);
     setRecords(nextRecords);
+    setScope(
+      (current) =>
+        current ||
+        (nextRecords.some((record) => record.kind === "Epic import")
+          ? "Epic import"
+          : "All records"),
+    );
     setGrants(nextGrants);
   }, [demoUser]);
 
@@ -138,9 +147,10 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     const granteeUser = users.find((user) => user.id === recipient);
     if (!granteeUser?.wallet) throw new Error("Recipient must enroll a vault wallet first.");
 
-    if (registryConfigured()) {
+    if (sharingMode(selected, !localGrantDemo && registryConfigured()) === "wallet") {
       const session = getVaultSession();
-      if (!session) throw new Error("Unlock your vault to sign grant transactions.");
+      if (!session || session.userId !== me?.id)
+        throw new Error("Unlock your vault to sign grant transactions.");
       const created: AccessGrant[] = [];
       for (const record of selected) {
         const dataCid = `medilink:record:${record.id}`;
@@ -204,7 +214,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     ]);
     const active = result.grants.filter((grant) => grant.status === "active").length;
     setMessage(
-      `${active} of ${result.grants.length} record grants active. Off-chain mode: no contracts deployed.`,
+      `${active} of ${result.grants.length} record grants active. ${chainEnabled ? "Verified through the server's access registry." : "Local access control; blockchain verification is off."}`,
     );
   }
 
@@ -222,8 +232,11 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   }
 
   async function revoke(grant: AccessGrant) {
-    if (registryConfigured() && grant.record_ids[0]) {
-      const grantee = users.find((user) => user.id === grant.recipient_id)?.wallet;
+    if (isWalletRegistryGrant(grant) && grant.record_ids[0]) {
+      const session = getVaultSession();
+      if (!session || session.userId !== me?.id)
+        throw new Error("Unlock your vault to revoke access.");
+      const grantee = grant.recipient_wallet;
       if (!grantee) throw new Error("Recipient wallet unknown.");
       const tx = await revokeAccessOnChain({
         recordId: grant.record_ids[0],
@@ -244,16 +257,15 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     if (!mounted.current) return;
     setGrants((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     setMessage(
-      updated.status === "revoked"
-        ? "Access revoked."
-        : updated.error || "Revocation pending.",
+      updated.status === "revoked" ? "Access revoked." : updated.error || "Revocation pending.",
     );
   }
 
   async function checkAccess(grant: AccessGrant) {
-    if (registryConfigured() && grant.record_ids[0]) {
+    if (isWalletRegistryGrant(grant) && grant.record_ids[0]) {
       const session = getVaultSession();
-      if (!session) throw new Error("Unlock your vault to prove access.");
+      if (!session || session.userId !== me?.id)
+        throw new Error("Unlock your vault to prove access.");
       const resourceId = resourceIdFromRecord(grant.record_ids[0]);
       const ownerPub =
         users.find((user) => user.id === grant.owner_id)?.x25519PublicKeyB64 ||
@@ -290,16 +302,110 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       );
   }
 
+  const activeGrants = grants.filter((grant) => grant.status === "active");
+  const outgoingGrants = activeGrants.filter((grant) => grant.owner_id === me?.id);
+  const incomingGrants = activeGrants.filter((grant) => grant.recipient_id === me?.id);
+  const revokedGrants = grants.filter((grant) => ["revoked", "revoking"].includes(grant.status));
+  const setupGrants = grants.filter((grant) => ["pending", "failed"].includes(grant.status));
+
+  const renderGrant = (grant: AccessGrant) => (
+    <div key={grant.id} className="space-y-2 rounded-md border border-line p-3">
+      <h3 className="break-words text-lg font-semibold leading-snug sm:text-xl">
+        {grant.record_name}
+      </h3>
+      <p className="text-mut">{grant.scope}</p>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-mut">Sender</dt>
+          <dd className="break-words font-medium text-sky-300">{grant.owner_name}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-mut">Recipient</dt>
+          <dd className="break-words font-medium text-violet-300">{grant.recipient_name}</dd>
+        </div>
+      </dl>
+      <p className="capitalize">Status: {grant.status}</p>
+      {grant.error && <p className="text-mut">{grant.error}</p>}
+      {grant.contract_address && (
+        <p className="break-all text-[11px]">Registry: {grant.contract_address}</p>
+      )}
+      {grant.chain_enabled && (
+        <>
+          <p className="break-all text-[11px]">Resource ID: {grant.resource_id}</p>
+          <p className="break-all text-[11px]">Recipient wallet: {grant.recipient_wallet}</p>
+        </>
+      )}
+      {grant.resource_tx && (
+        <details className="text-mut">
+          <summary>Resource registration transaction</summary>
+          <p className="break-all">{grant.resource_tx}</p>
+        </details>
+      )}
+      {grant.deploy_tx && (
+        <details className="text-mut">
+          <summary>Registry deployment transaction</summary>
+          <p className="break-all">{grant.deploy_tx}</p>
+        </details>
+      )}
+      {grant.register_tx && (
+        <details className="text-mut">
+          <summary>Grant transaction</summary>
+          <p className="break-all">{grant.register_tx}</p>
+        </details>
+      )}
+      {grant.registry_revoked && <p>Recipient grant removed from registry</p>}
+      {grant.revoke_tx && (
+        <details className="text-mut">
+          <summary>Revocation transaction</summary>
+          <p className="break-all">{grant.revoke_tx}</p>
+        </details>
+      )}
+      {grant.status === "revoking" && (
+        <p className="text-mut">API access blocked. Registry revocation awaiting confirmation.</p>
+      )}
+      {grant.owner_id === me?.id && grant.status === "pending" && (
+        <button
+          className={button}
+          disabled={busy}
+          onClick={() => void perform(() => resumeSetup(grant))}
+        >
+          Resume setup
+        </button>
+      )}
+      {grant.tx_hash && !grant.deploy_tx && (
+        <p className="break-all text-[10px] text-mut">Transaction: {grant.tx_hash}</p>
+      )}
+      {grant.owner_id === me?.id &&
+        ["active", "pending", "failed", "revoking"].includes(grant.status) && (
+          <button
+            className={button}
+            disabled={busy}
+            onClick={() => void perform(() => revoke(grant))}
+          >
+            {grant.status === "revoking" ? "Retry revocation" : "Revoke"}
+          </button>
+        )}
+      {grant.recipient_id === me?.id && (
+        <button
+          className={button}
+          disabled={busy}
+          onClick={() => void perform(() => checkAccess(grant))}
+        >
+          Check access
+        </button>
+      )}
+      {grant.status === "active" && grant.document?.has_document && (
+        <button className={button} disabled={busy} onClick={() => setViewing(grant.document!)}>
+          Open shared content
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="mt-3 space-y-3 text-[12px]">
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate">
-          {loading
-            ? "Loading grants…"
-            : me
-              ? `${me.name} · ${me.wallet.slice(0, 6)}…${me.wallet.slice(-4)}`
-              : "Not enrolled"}
-        </span>
+        <span>{loading ? "Loading grants…" : me?.name}</span>
         <button className={button} disabled={busy || loading} onClick={() => void perform(refresh)}>
           Refresh
         </button>
@@ -323,9 +429,22 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
         <>
           <p className="text-mut">
             {chainEnabled
-              ? "Blockchain connected · one shared AccessRegistry; each share is an on-chain grant"
-              : "Off-chain demo · start the API with --chain (or set VITE_ACCESS_REGISTRY) for registry grants"}
+              ? "Server access control · blockchain verification is on"
+              : "Server access control · blockchain verification is off"}
           </p>
+          {!localGrantDemo && registryConfigured() && (
+            <p className="text-mut">
+              Uploaded documents use wallet-signed sharing. Saved Epic reports use the server's
+              access controls so recipients can open the report. Share these record types
+              separately.
+            </p>
+          )}
+          {!uploadsConfigured && (
+            <p className="text-mut">
+              Uploaded document storage is not configured here. You can still share saved Epic
+              import reports.
+            </p>
+          )}
           {chainEnabled && (
             <details className="text-mut">
               <summary>Recipient transaction wallet</summary>
@@ -363,9 +482,29 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 ))}
               </select>
               <p className="text-mut">
-                Shares each matching record separately on the shared AccessRegistry (one grant
-                commitment per recipient–record). Upload records first if this list is empty.
+                Shares each matching record separately. Each recipient gets a separate credential in
+                the shared registry when blockchain mode is enabled.
               </p>
+              <div className="space-y-2 rounded-md border border-line p-3">
+                <p className="font-medium">Content included in this grant</p>
+                {records
+                  .filter((record) => scope === "All records" || record.kind === scope)
+                  .map((record) => (
+                    <div key={record.id} className="space-y-1">
+                      <p className="break-words">{record.name}</p>
+                      {record.share_note && <p className="text-mut">{record.share_note}</p>}
+                      {record.has_document && (
+                        <button
+                          className={button}
+                          disabled={busy}
+                          onClick={() => setViewing(record)}
+                        >
+                          Review content before sharing
+                        </button>
+                      )}
+                    </div>
+                  ))}
+              </div>
               <button
                 className={`${button} w-full border-aurora/40 text-aurora`}
                 disabled={busy || !recipient}
@@ -382,83 +521,84 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               Recipients must sign in and open this panel once before you can select them.
             </p>
           )}
-          {grants.length === 0 && <p className="text-mut">No grants for this account.</p>}
-          {grants.map((grant) => (
-            <div key={grant.id} className="space-y-2 rounded-md border border-line p-3">
-              <p className="font-medium">
-                {grant.owner_id === me.id
-                  ? `To ${grant.recipient_name}`
-                  : `From ${grant.owner_name}`}
-              </p>
-              <p>
-                {grant.record_name} · {grant.scope}
-              </p>
-              <p className="capitalize">Status: {grant.status}</p>
-              {grant.error && <p className="text-mut">{grant.error}</p>}
-              {grant.contract_address && (
-                <p className="break-all text-[11px]">Contract: {grant.contract_address}</p>
-              )}
-              {grant.deploy_tx && (
-                <details className="text-mut">
-                  <summary>Deployment transaction</summary>
-                  <p className="break-all">{grant.deploy_tx}</p>
-                </details>
-              )}
-              {grant.register_tx && (
-                <details className="text-mut">
-                  <summary>Commitment transaction</summary>
-                  <p className="break-all">{grant.register_tx}</p>
-                </details>
-              )}
-              {grant.registry_revoked && <p>Recipient grant removed from registry</p>}
-              {grant.revoke_tx && (
-                <details className="text-mut">
-                  <summary>Revocation transaction</summary>
-                  <p className="break-all">{grant.revoke_tx}</p>
-                </details>
-              )}
-              {grant.status === "revoking" && (
-                <p className="text-mut">
-                  API access blocked. Registry revocation awaiting confirmation.
-                </p>
-              )}
-              {grant.owner_id === me.id && grant.status === "pending" && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => void perform(() => resumeSetup(grant))}
-                >
-                  Resume setup
-                </button>
-              )}
-              {grant.tx_hash && !grant.deploy_tx && (
-                <p className="break-all text-[10px] text-mut">Transaction: {grant.tx_hash}</p>
-              )}
-              {grant.owner_id === me.id &&
-                ["active", "pending", "failed", "revoking"].includes(grant.status) && (
-                  <button
-                    className={button}
-                    disabled={busy}
-                    onClick={() => void perform(() => revoke(grant))}
-                  >
-                    {grant.status === "revoking" ? "Retry revocation" : "Revoke"}
-                  </button>
+          <Tabs defaultValue="active" className="pt-3">
+            <TabsList
+              aria-label="Access grant status"
+              className="grid w-full grid-cols-2 bg-surface2 text-mut"
+            >
+              <TabsTrigger
+                value="active"
+                className="data-[state=active]:bg-ink data-[state=active]:text-aurora"
+              >
+                Active ({activeGrants.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="revoked"
+                className="data-[state=active]:bg-ink data-[state=active]:text-rose-300"
+              >
+                Revoked ({revokedGrants.length})
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="active" className="space-y-3 pt-2">
+              <section aria-label="Active outgoing receipts" className="space-y-3">
+                <h2 className="text-sm font-semibold text-sky-300">
+                  Active outgoing receipts ({outgoingGrants.length})
+                </h2>
+                <p className="text-mut">Records you have shared with others.</p>
+                {outgoingGrants.length ? (
+                  outgoingGrants.map(renderGrant)
+                ) : (
+                  <p className="py-3 text-mut">No active outgoing receipts.</p>
                 )}
-              {grant.recipient_id === me.id && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => void perform(() => checkAccess(grant))}
-                >
-                  Check access
-                </button>
+              </section>
+              <section
+                aria-label="Active incoming receipts"
+                className="space-y-3 border-t border-line pt-4"
+              >
+                <h2 className="text-sm font-semibold text-violet-300">
+                  Active incoming receipts ({incomingGrants.length})
+                </h2>
+                <p className="text-mut">Records others have shared with you.</p>
+                {incomingGrants.length ? (
+                  incomingGrants.map(renderGrant)
+                ) : (
+                  <p className="py-3 text-mut">No active incoming receipts.</p>
+                )}
+              </section>
+            </TabsContent>
+            <TabsContent value="revoked" className="space-y-3 pt-2">
+              <p className="text-mut">
+                Access is blocked for these grants, including any awaiting registry revocation.
+              </p>
+              {revokedGrants.length === 0 ? (
+                <p className="py-4 text-center text-mut">No revoked access grants.</p>
+              ) : (
+                revokedGrants.map(renderGrant)
               )}
-            </div>
-          ))}
+            </TabsContent>
+          </Tabs>
+          {setupGrants.length > 0 && (
+            <section
+              aria-label="Setup needs attention"
+              className="space-y-3 border-t border-line pt-4"
+            >
+              <h2 className="text-sm font-semibold text-amber-300">
+                Setup needs attention ({setupGrants.length})
+              </h2>
+              <p className="text-mut">
+                These grants are not active. Complete setup or revoke them below.
+              </p>
+              {setupGrants.map(renderGrant)}
+            </section>
+          )}
           <p className="text-mut">
-            This panel verifies permissions and key sharing. Record downloads are not connected yet.
+            Open shared content to view an authorized report. Revoking access blocks future opens,
+            but cannot remove a copy already viewed or saved.
           </p>
         </>
+      )}
+      {viewing && (
+        <DocumentViewer record={viewing} demoUser={demoUser} onClose={() => setViewing(null)} />
       )}
     </div>
   );
