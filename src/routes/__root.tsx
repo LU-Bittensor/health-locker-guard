@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { DemoAccountProvider } from "@/components/DemoAccountProvider";
 import { localGrantDemo } from "@/lib/grant-api";
+import { clearVaultSession, getVaultSession } from "@/lib/vault-session";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -141,7 +142,11 @@ function RootComponent() {
     if (localGrantDemo) return;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
+    } = supabase.auth.onAuthStateChange((event, authSession) => {
+      const vault = getVaultSession();
+      if (event === "SIGNED_OUT" || (vault && vault.userId !== authSession?.user.id)) {
+        clearVaultSession();
+      }
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       void router.invalidate();
       if (event !== "SIGNED_OUT") void queryClient.invalidateQueries();
