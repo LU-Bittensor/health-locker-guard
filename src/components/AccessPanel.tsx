@@ -152,7 +152,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       const session = getVaultSession();
       if (!session || session.userId !== me?.id)
         throw new Error("Unlock your vault to sign grant transactions.");
-      const created: AccessGrant[] = [];
+      let lastTx: string | null = null;
       for (const record of selected) {
         const dataCid = `medilink:record:${record.id}`;
         await registerResource({ recordId: record.id, dataCid });
@@ -162,15 +162,16 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           grantee: granteeUser.wallet as Address,
           resourceId,
         });
-        const tx = await grantAccessOnChain({
+        lastTx = await grantAccessOnChain({
           recordId: record.id,
           grantee: granteeUser.wallet as Address,
           commitment,
         });
-        created.push({
-          id: `${record.id}:${recipient}`,
-          owner_id: me?.id || "",
-          owner_name: me?.name || "",
+      }
+      // Dual-write: persist API grant rows so Shared can open Supabase file bytes.
+      const result = await grantRequest<{ grants: AccessGrant[] }>("/grants", demoUser, {
+        method: "POST",
+        body: JSON.stringify({
           recipient_id: recipient,
           recipient_name: granteeUser.name,
           scope: record.kind,
@@ -203,7 +204,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       if (!mounted.current) return;
       setGrants(indexed);
       setMessage(
-        `Granted ${created.length} record(s) on AccessRegistry from vault wallet ${me?.wallet}.`,
+        `Granted ${result.grants.length} record(s) on AccessRegistry and registered API delivery for vault ${me?.wallet}.`,
       );
       return;
     }

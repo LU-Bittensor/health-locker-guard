@@ -1,21 +1,30 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialogs";
-import { SharedWithYouPanel } from "@/components/SharedWithYouPanel";
 import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
 import { supabase } from "@/integrations/supabase/client";
 import { EpicRecords } from "@/components/EpicRecords";
 import {
+  fetchRecordMetadata,
   grantRequest,
   localGrantDemo,
   type AccessGrant,
   type GrantRecord,
   type GrantUser,
 } from "@/lib/grant-api";
+import {
+  listSharedGrantsForVault,
+  registryConfigured,
+  vaultEvmAddress,
+} from "@/lib/registry-wallet";
 
 type VisibleRecord = GrantRecord & { ownerId: string; ownerName: string; owned: boolean };
+
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
 
 export function Vault({ ownerId, sharedOnly = false }: { ownerId?: string; sharedOnly?: boolean }) {
   const { demoUser } = useDemoAccount();
@@ -66,13 +75,15 @@ function Records({
   const [records, setRecords] = useState<VisibleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sharedHint, setSharedHint] = useState("");
   const [uploadsConfigured, setUploadsConfigured] = useState(true);
-  const [filter, setFilter] = useState<"all" | "owned" | "shared">("all");
+  const [filter, setFilter] = useState<"all" | "owned" | "shared">(sharedOnly ? "shared" : "all");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError("");
+    setSharedHint("");
     async function load() {
       const account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
       const [owned, grants, role, health] = await Promise.all([
@@ -112,6 +123,56 @@ function Records({
             owned: false,
           });
       }
+
+      // Fold AccessGrantSet discoveries into the same Shared filter (no separate panel).
+      if (registryConfigured()) {
+        if (!vaultEvmAddress()) {
+          if (!cancelled)
+            setSharedHint("Unlock your vault to discover on-chain shares for your address.");
+        } else {
+          try {
+            const onChain = await listSharedGrantsForVault();
+            for (const item of onChain) {
+              const recordId = item.recordId || item.resourceId;
+              const already = [...visible.values()].some(
+                (row) => !row.owned && (row.id === recordId || row.id === item.recordId),
+              );
+              if (already) continue;
+              if (ownerId && item.owner.toLowerCase() !== ownerId.toLowerCase()) continue;
+              let meta: GrantRecord | null = null;
+              if (item.recordId) {
+                try {
+                  meta = await fetchRecordMetadata(item.recordId, demoUser);
+                } catch {
+                  meta = null;
+                }
+              }
+              const sharedRow: VisibleRecord = {
+                id: recordId,
+                name:
+                  meta?.name ||
+                  (item.recordId ? `Record ${item.recordId}` : item.dataCid || "Shared resource"),
+                kind: meta?.kind || "On-chain share",
+                has_document: meta?.has_document ?? Boolean(item.recordId),
+                ownerId: meta?.owner_id || item.owner,
+                ownerName: meta?.owner_id ? "Shared owner" : shortAddr(item.owner),
+                owned: false,
+              };
+              if (meta?.tags) sharedRow.tags = meta.tags;
+              if (meta?.mime_type != null) sharedRow.mime_type = meta.mime_type;
+              if (meta?.size != null) sharedRow.size = meta.size;
+              if (meta?.created_at) sharedRow.created_at = meta.created_at;
+              visible.set(`${item.owner.toLowerCase()}:${recordId}`, sharedRow);
+            }
+          } catch (cause) {
+            if (!cancelled)
+              setSharedHint(
+                cause instanceof Error ? cause.message : "Could not load on-chain shares.",
+              );
+          }
+        }
+      }
+
       if (!cancelled) {
         setRecords([...visible.values()]);
         setCanUpload(role === "patient" && health.document_uploads_configured !== false);
@@ -134,6 +195,7 @@ function Records({
   }, [demoUser, ownerId, sharedOnly, refresh]);
 
   const ownedCount = records.filter((record) => record.owned).length;
+  const sharedCount = records.length - ownedCount;
   const filteredRecords = records.filter(
     (record) => filter === "all" || (filter === "owned" ? record.owned : !record.owned),
   );
@@ -209,7 +271,7 @@ function Records({
               [
                 ["all", "All", records.length],
                 ["owned", "Owned", ownedCount],
-                ["shared", "Shared", records.length - ownedCount],
+                ["shared", "Shared", sharedCount],
               ] as const
             ).map(([value, label, count]) => (
               <button
@@ -256,7 +318,8 @@ function Records({
               {filter === "owned"
                 ? "Records you own will appear here."
                 : filter === "shared"
-                  ? "Records with active access shared with you will appear here."
+                  ? sharedHint ||
+                    "API grants and on-chain AccessGrantSet shares for your vault appear here."
                   : "Records you own or that have been shared with you will appear here."}
             </p>
             <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
@@ -266,6 +329,11 @@ function Records({
         ) : (
           !loading && (
             <div className="overflow-x-auto">
+              {filter === "shared" && sharedHint && (
+                <p role="status" className="border-b border-line px-5 py-3 text-xs text-aurora">
+                  {sharedHint}
+                </p>
+              )}
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-line/50 text-xs uppercase tracking-wide text-mut">
                   <tr>
@@ -340,9 +408,9 @@ function Records({
           onClose={() => setViewing(null)}
         />
       )}
-      {!sharedOnly && !ownerId && <SharedWithYouPanel refreshKey={refresh} />}
       <p className="text-xs text-mut">
-        Click a document name to view it. Use the access ledger to share or revoke access.
+        Click a document name to view it. Use Shared for API and on-chain grants; manage sharing from
+        the access ledger.
       </p>
     </div>
   );

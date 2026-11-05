@@ -113,6 +113,14 @@ export async function listOwnedRecords(demoUser = "patient"): Promise<GrantRecor
   return grantRequest<GrantRecord[]>("/records", demoUser);
 }
 
+/** Metadata for a record the caller owns or is authorized to view (API or on-chain grant). */
+export async function fetchRecordMetadata(
+  recordId: string,
+  demoUser = "patient",
+): Promise<GrantRecord> {
+  return grantRequest<GrantRecord>(`/records/${encodeURIComponent(recordId)}`, demoUser);
+}
+
 /** Upload a document file through the grant API (stores bytes in Supabase file_content). */
 export async function uploadOwnedRecord(
   input: { file: File; tags?: string; kind?: string },
