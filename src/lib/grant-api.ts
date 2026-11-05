@@ -11,6 +11,7 @@ export type GrantRecord = {
   tags?: string[];
   has_document?: boolean;
   mime_type?: string;
+  share_note?: string;
 };
 export type AccessGrant = {
   id: string;

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoAccount } from "@/lib/demo-account";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
+import { DocumentViewer } from "@/components/DocumentDialogs";
 import {
   grantRequest,
   localGrantDemo,
@@ -15,24 +17,46 @@ const button = "rounded-md border border-line px-2.5 py-1.5 text-[12px] disabled
 
 export function AccessPanel() {
   const { demoUser } = useDemoAccount();
+  const [account, setAccount] = useState<string | null>(null);
+  const [checking, setChecking] = useState(!localGrantDemo);
+  useEffect(() => {
+    if (localGrantDemo) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccount(session?.user.id ?? null);
+      setChecking(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   return (
     <section
       aria-label="Manage record access"
       className="rounded-xl border border-line/70 bg-surface/80 p-4 text-tx sm:p-6"
     >
-      <AccountGrants key={demoUser} demoUser={demoUser} />
+      {checking ? (
+        <p role="status">Checking your account…</p>
+      ) : !localGrantDemo && !account ? (
+        <Link to="/signin" className="text-aurora underline">
+          Sign in to manage access
+        </Link>
+      ) : (
+        <AccountGrants key={account ?? demoUser} demoUser={demoUser} />
+      )}
     </section>
   );
 }
 
 function AccountGrants({ demoUser }: { demoUser: string }) {
   const [chainEnabled, setChainEnabled] = useState(false);
+  const [uploadsConfigured, setUploadsConfigured] = useState(true);
+  const [viewing, setViewing] = useState<GrantRecord | null>(null);
   const [me, setMe] = useState<GrantUser | null>(null);
   const [users, setUsers] = useState<GrantUser[]>([]);
   const [records, setRecords] = useState<GrantRecord[]>([]);
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [recipient, setRecipient] = useState("");
-  const [scope, setScope] = useState("All records");
+  const [scope, setScope] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -46,13 +70,21 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       grantRequest<GrantUser[]>("/users", demoUser),
       grantRequest<GrantRecord[]>("/records", demoUser),
       grantRequest<AccessGrant[]>("/grants", demoUser),
-      grantRequest<{ chain: boolean }>("/health", demoUser),
+      grantRequest<{ chain: boolean; document_uploads_configured?: boolean }>("/health", demoUser),
     ]);
     if (!mounted.current) return;
     setMe(account);
     setChainEnabled(health.chain);
+    setUploadsConfigured(health.document_uploads_configured !== false);
     setUsers(nextUsers);
     setRecords(nextRecords);
+    setScope(
+      (current) =>
+        current ||
+        (nextRecords.some((record) => record.kind === "Epic import")
+          ? "Epic import"
+          : "All records"),
+    );
     setGrants(nextGrants);
   }, [demoUser]);
 
@@ -241,6 +273,11 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           Check access
         </button>
       )}
+      {grant.status === "active" && grant.document?.has_document && (
+        <button className={button} disabled={busy} onClick={() => setViewing(grant.document!)}>
+          Open shared content
+        </button>
+      )}
     </div>
   );
 
@@ -272,8 +309,14 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           <p className="text-mut">
             {chainEnabled
               ? "Blockchain connected · shared AccessRegistry"
-              : "Off-chain demo · start the API with --chain to deploy contracts"}
+              : "Local access control · blockchain verification is off"}
           </p>
+          {!uploadsConfigured && (
+            <p className="text-mut">
+              Uploaded document storage is not configured here. You can still share saved Epic
+              import reports.
+            </p>
+          )}
           {chainEnabled && (
             <details className="text-mut">
               <summary>Recipient transaction wallet</summary>
@@ -314,6 +357,26 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 Shares each matching record separately. Each recipient gets a separate credential in
                 the shared registry when blockchain mode is enabled.
               </p>
+              <div className="space-y-2 rounded-md border border-line p-3">
+                <p className="font-medium">Content included in this grant</p>
+                {records
+                  .filter((record) => scope === "All records" || record.kind === scope)
+                  .map((record) => (
+                    <div key={record.id} className="space-y-1">
+                      <p className="break-words">{record.name}</p>
+                      {record.share_note && <p className="text-mut">{record.share_note}</p>}
+                      {record.has_document && (
+                        <button
+                          className={button}
+                          disabled={busy}
+                          onClick={() => setViewing(record)}
+                        >
+                          Review content before sharing
+                        </button>
+                      )}
+                    </div>
+                  ))}
+              </div>
               <button
                 className={`${button} w-full border-aurora/40 text-aurora`}
                 disabled={busy || !recipient}
@@ -401,9 +464,13 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
             </section>
           )}
           <p className="text-mut">
-            This panel verifies permissions and key sharing. Record downloads are not connected yet.
+            Open shared content to view an authorized report. Revoking access blocks future opens,
+            but cannot remove a copy already viewed or saved.
           </p>
         </>
+      )}
+      {viewing && (
+        <DocumentViewer record={viewing} demoUser={demoUser} onClose={() => setViewing(null)} />
       )}
     </div>
   );

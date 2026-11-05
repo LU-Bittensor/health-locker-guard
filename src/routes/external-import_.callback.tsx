@@ -42,7 +42,7 @@ function EpicCallback() {
         <h1 className="text-2xl font-semibold">Epic connection</h1>
         {!result && !error && (
           <div role="status" className="space-y-3">
-            <p>Completing the secure token exchange…</p>
+            <p>Completing your Epic connection…</p>
             <div className="h-2 overflow-hidden rounded-full bg-surface2">
               <div className="gradient-aurora h-full w-full animate-pulse rounded-full" />
             </div>
@@ -50,11 +50,11 @@ function EpicCallback() {
         )}
         {result && (
           <div role="status" className="space-y-3">
-            <p className="text-aurora">Token exchange successful.</p>
+            <p className="text-aurora">Connected to Epic.</p>
             <p className="font-semibold">
-              {result.ready_for_transfer
-                ? "Authorization ready for transfer"
-                : "Not ready for transfer"}
+              {result.ready_for_import
+                ? "Ready to import your records"
+                : "Additional authorization needed"}
             </p>
             <p className="text-sm text-mut">{result.reason}</p>
           </div>

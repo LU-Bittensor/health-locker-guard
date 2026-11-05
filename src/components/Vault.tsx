@@ -4,6 +4,8 @@ import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialo
 import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
+import { supabase } from "@/integrations/supabase/client";
+import { EpicRecords } from "@/components/EpicRecords";
 import {
   grantRequest,
   localGrantDemo,
@@ -16,14 +18,34 @@ type VisibleRecord = GrantRecord & { ownerId: string; ownerName: string; owned: 
 
 export function Vault({ ownerId, sharedOnly = false }: { ownerId?: string; sharedOnly?: boolean }) {
   const { demoUser } = useDemoAccount();
+  const [account, setAccount] = useState<string | null>(null);
+  const [checking, setChecking] = useState(!localGrantDemo);
+  useEffect(() => {
+    if (localGrantDemo) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccount(session?.user.id ?? null);
+      setChecking(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
   return (
     <VaultLayout>
-      <Records
-        key={`${demoUser}:${ownerId || "all"}:${sharedOnly}`}
-        demoUser={demoUser}
-        ownerId={ownerId}
-        sharedOnly={sharedOnly}
-      />
+      {checking ? (
+        <p role="status">Checking your account…</p>
+      ) : !localGrantDemo && !account ? (
+        <Link to="/signin" className="text-aurora underline">
+          Sign in to view your records
+        </Link>
+      ) : (
+        <Records
+          key={`${account ?? demoUser}:${ownerId || "all"}:${sharedOnly}`}
+          demoUser={demoUser}
+          ownerId={ownerId}
+          sharedOnly={sharedOnly}
+        />
+      )}
     </VaultLayout>
   );
 }
@@ -43,6 +65,7 @@ function Records({
   const [records, setRecords] = useState<VisibleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [uploadsConfigured, setUploadsConfigured] = useState(true);
   const [filter, setFilter] = useState<"all" | "owned" | "shared">("all");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
@@ -51,12 +74,13 @@ function Records({
     setError("");
     async function load() {
       const account = await grantRequest<GrantUser>("/enroll", demoUser, { method: "POST" });
-      const [owned, grants, role] = await Promise.all([
+      const [owned, grants, role, health] = await Promise.all([
         grantRequest<GrantRecord[]>("/records", demoUser),
         grantRequest<AccessGrant[]>("/grants", demoUser),
         localGrantDemo
           ? Promise.resolve(demoUser === "patient" ? "patient" : "provider")
           : fetchRole(),
+        grantRequest<{ document_uploads_configured?: boolean }>("/health", demoUser),
       ]);
       const visible = new Map<string, VisibleRecord>();
       if (!sharedOnly)
@@ -89,7 +113,8 @@ function Records({
       }
       if (!cancelled) {
         setRecords([...visible.values()]);
-        setCanUpload(role === "patient");
+        setCanUpload(role === "patient" && health.document_uploads_configured !== false);
+        setUploadsConfigured(health.document_uploads_configured !== false);
       }
     }
     void load()
@@ -145,10 +170,20 @@ function Records({
           </Link>
         </div>
       </div>
+      {!localGrantDemo && !sharedOnly && !ownerId && <EpicRecords />}
       <section
-        aria-label="Records"
+        aria-label="Documents and shared records"
         className="overflow-hidden rounded-xl border border-line/70 bg-surface/70"
       >
+        <h2 className="border-b border-line px-5 py-4 font-semibold">
+          Shareable reports and documents
+        </h2>
+        {!uploadsConfigured && (
+          <p className="border-b border-line px-5 py-3 text-sm text-mut">
+            Uploaded document storage is not configured here. Saved Epic import reports and reports
+            shared with you remain available.
+          </p>
+        )}
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <span className="text-sm text-mut" role="status">
             {loading
@@ -193,7 +228,11 @@ function Records({
         )}
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
-            <p className="text-red-400">{error}</p>
+            <p className="text-red-400">
+              {error.includes("SUPABASE_")
+                ? "Document storage is not configured on this local server. Your imported Epic records above remain available."
+                : error}
+            </p>
             <p className="text-mut">
               Resolve the connection or account issue above, then refresh records.
             </p>
