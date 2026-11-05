@@ -141,7 +141,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     if (registryConfigured()) {
       const session = getVaultSession();
       if (!session) throw new Error("Unlock your vault to sign grant transactions.");
-      const created: AccessGrant[] = [];
+      let lastTx: string | null = null;
       for (const record of selected) {
         const dataCid = `medilink:record:${record.id}`;
         await registerResource({ recordId: record.id, dataCid });
@@ -151,41 +151,29 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           grantee: granteeUser.wallet as Address,
           resourceId,
         });
-        const tx = await grantAccessOnChain({
+        lastTx = await grantAccessOnChain({
           recordId: record.id,
           grantee: granteeUser.wallet as Address,
           commitment,
         });
-        created.push({
-          id: `${record.id}:${recipient}`,
-          owner_id: me?.id || "",
-          owner_name: me?.name || "",
-          recipient_id: recipient,
-          recipient_name: granteeUser.name,
-          scope: record.kind,
-          record_name: record.name,
-          contract_address: import.meta.env["VITE_ACCESS_REGISTRY"] || null,
-          deploy_tx: null,
-          resource_tx: null,
-          resource_id: resourceId,
-          recipient_wallet: granteeUser.wallet,
-          register_tx: null,
-          revoke_tx: null,
-          registry_revoked: false,
-          chain_enabled: true,
-          record_ids: [record.id],
-          status: "active",
-          tx_hash: tx,
-          error: null,
-        });
       }
+      // Dual-write: persist API grant rows so Shared can open Supabase file bytes.
+      const result = await grantRequest<{ grants: AccessGrant[] }>("/grants", demoUser, {
+        method: "POST",
+        body: JSON.stringify({
+          recipient_id: recipient,
+          record_ids: selected.map((record) => record.id),
+          client_chain: true,
+          tx_hash: lastTx,
+        }),
+      });
       if (!mounted.current) return;
       setGrants((current) => [
-        ...created,
-        ...current.filter((item) => !created.some((grant) => grant.id === item.id)),
+        ...result.grants,
+        ...current.filter((item) => !result.grants.some((grant) => grant.id === item.id)),
       ]);
       setMessage(
-        `Granted ${created.length} record(s) on AccessRegistry from vault wallet ${me?.wallet}.`,
+        `Granted ${result.grants.length} record(s) on AccessRegistry and registered API delivery for vault ${me?.wallet}.`,
       );
       return;
     }
