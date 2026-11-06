@@ -1,3 +1,4 @@
+import { identityFingerprint } from "@/lib/document-crypto";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoAccount } from "@/lib/demo-account";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { DocumentViewer } from "@/components/DocumentDialogs";
 import {
   grantRequest,
+  shareDocumentKey,
   localGrantDemo,
   type AccessGrant,
   type GrantRecord,
@@ -75,6 +77,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [fingerprint, setFingerprint] = useState("");
   const mounted = useRef(true);
   const mutation = useRef(false);
 
@@ -93,6 +96,14 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     ]);
     if (!mounted.current) return;
     setMe(account);
+    if (session && !localGrantDemo) {
+      const value = await identityFingerprint(
+        session.userId,
+        session.contents.evmAddress,
+        session.contents.x25519PublicKeyB64,
+      );
+      if (mounted.current) setFingerprint(value);
+    }
     setChainEnabled(health.chain);
     setUploadsConfigured(health.document_uploads_configured !== false);
     setUsers(nextUsers);
@@ -152,6 +163,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       if (!session || session.userId !== me?.id)
         throw new Error("Unlock your vault to sign grant transactions.");
       for (const record of selected) {
+        await shareDocumentKey(record.id, granteeUser, demoUser);
         const dataCid = `medilink:record:${record.id}`;
         await registerResource({ recordId: record.id, dataCid });
         const resourceId = resourceIdFromRecord(record.id);
@@ -189,6 +201,9 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       return;
     }
 
+    if (!localGrantDemo) {
+      for (const record of selected) await shareDocumentKey(record.id, granteeUser, demoUser);
+    }
     const result = await grantRequest<{ grants: AccessGrant[] }>("/grants", demoUser, {
       method: "POST",
       body: JSON.stringify({
@@ -407,6 +422,12 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               Sign in
             </Link>
           )}
+        </p>
+      )}
+      {fingerprint && (
+        <p className="break-all text-mut">
+          Your encryption fingerprint: <code>{fingerprint}</code>. Share this through a trusted
+          channel so others can verify your vault before sharing documents.
         </p>
       )}
       {message && (

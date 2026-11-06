@@ -50,8 +50,8 @@ export function UploadDocumentDialog({
       <DialogContent className="border-line bg-ink text-tx">
         <DialogTitle>Upload document</DialogTitle>
         <DialogDescription>
-          Choose a PDF, PNG, JPEG, or text file up to 10 MB. Only you can view it until you share
-          access.
+          Choose a PDF, PNG, JPEG, or text file up to 10 MB. Unlock your vault first. New documents
+          are encrypted in your browser; only you can view them until you share access.
         </DialogDescription>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-2">
