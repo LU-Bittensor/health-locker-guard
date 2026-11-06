@@ -131,19 +131,28 @@ function documentMime(file: File, content: Uint8Array): string {
   throw new Error("Choose a PDF, PNG, JPEG or UTF-8 text file matching its extension.");
 }
 
-export async function uploadDocument(file: File, tags: string, demoUser: string, kind?: string) {
+export async function uploadDocument(
+  file: File,
+  tags: string,
+  demoUser: string,
+  kind?: string,
+  recordId?: string,
+  expectedUser?: string,
+) {
   const body = new FormData();
   if (localGrantDemo) {
     body.append("file", file);
   } else {
     const session = await documentVault();
+    if (expectedUser && session.userId !== expectedUser)
+      throw new Error("Account changed during import.");
     if (!file.size || file.size > 10 * 1024 * 1024)
       throw new Error("Choose a non-empty document up to 10 MB.");
     const { enrollUnlockedVault } = await import("@/lib/vault-enroll");
     await enrollUnlockedVault(demoUser);
     const original = new Uint8Array(await file.arrayBuffer());
     const mime = documentMime(file, original);
-    const encrypted = await encryptDocument(original, mime, session);
+    const encrypted = await encryptDocument(original, mime, session, recordId);
     original.fill(0);
     body.append(
       "file",

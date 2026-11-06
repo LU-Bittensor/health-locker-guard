@@ -3,7 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { Hospital, LoaderCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { epicRequest, type EpicConnection, type EpicImport } from "@/lib/external-import";
+import {
+  epicRequest,
+  prepareEpicImport,
+  saveEpicImport,
+  type EpicConnection,
+  type EpicImport,
+} from "@/lib/external-import";
 
 export const Route = createFileRoute("/external-import")({
   head: () => ({ meta: [{ title: "Import records — Medilink" }] }),
@@ -66,14 +72,24 @@ function ExternalImport() {
       window.removeEventListener("focus", refresh);
     };
   }, [account]);
-  const running = job?.status === "running";
+  const running = job?.status === "running" || job?.status === "awaiting_encryption";
   useEffect(() => {
     if (!account) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
       try {
-        const result = await epicRequest<EpicImport>("import");
+        let result = await epicRequest<EpicImport>("import");
+        if (
+          active &&
+          currentAccount.current === account &&
+          result.status === "awaiting_encryption" &&
+          result.id
+        ) {
+          setJob(result);
+          result = await saveEpicImport(result.id);
+          if (active && currentAccount.current === account) setError("");
+        }
         if (active && currentAccount.current === account) setJob(result);
       } catch (err) {
         if (active && currentAccount.current === account)
@@ -112,6 +128,7 @@ function ExternalImport() {
     setStarting(true);
     setError("");
     try {
+      await prepareEpicImport();
       const result = await epicRequest<EpicImport>("import", {});
       if (currentAccount.current === account) setJob(result);
     } catch (err) {
@@ -196,7 +213,8 @@ function ExternalImport() {
           <p className="text-sm text-mut">
             Import patient details, vital signs, lab results, conditions, medication orders, and
             encounters. Records are saved for the MediLink account you are signed into. Some sandbox
-            patients have no records in particular categories.
+            patients have no records in particular categories. Unlock your vault and keep this page
+            open while the snapshot is encrypted in your browser and saved to Hippius.
           </p>
           <Button
             onClick={() => void startImport()}
@@ -235,26 +253,30 @@ function ExternalImport() {
               )}
               {job.status === "completed" && (
                 <>
-                  <dl className="grid grid-cols-2 gap-3 text-sm">
-                    {(
-                      [
-                        ["Patient details", "Patient"],
-                        ["Vital signs and labs", "Observation"],
-                        ["Conditions", "Condition"],
-                        ["Medication orders", "MedicationRequest"],
-                        ["Encounters", "Encounter"],
-                      ] as const
-                    ).map(([label, kind]) => (
-                      <div key={kind} className="rounded-lg border border-line p-3">
-                        <dt className="text-mut">{label}</dt>
-                        <dd className="mt-1 text-lg font-semibold">{job.counts?.[kind] ?? 0}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  {job.counts && (
+                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                      {(
+                        [
+                          ["Patient details", "Patient"],
+                          ["Vital signs and labs", "Observation"],
+                          ["Conditions", "Condition"],
+                          ["Medication orders", "MedicationRequest"],
+                          ["Encounters", "Encounter"],
+                        ] as const
+                      ).map(([label, kind]) => (
+                        <div key={kind} className="rounded-lg border border-line p-3">
+                          <dt className="text-mut">{label}</dt>
+                          <dd className="mt-1 text-lg font-semibold">{job.counts?.[kind] ?? 0}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                   <p className="text-sm text-aurora">
-                    {job.digest_verified
-                      ? "Saved records verified."
-                      : "Saved-record verification unavailable."}
+                    {job.client_encrypted
+                      ? "Browser-encrypted snapshot saved to Hippius."
+                      : job.digest_verified
+                        ? "Saved records verified."
+                        : "Saved-record verification unavailable."}
                   </p>
                   <Link
                     to="/records"

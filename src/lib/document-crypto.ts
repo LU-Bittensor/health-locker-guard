@@ -169,13 +169,18 @@ export async function unwrapDocumentKey(info: EncryptionInfo, session: VaultSess
     wrapping.fill(0);
   }
 }
-export async function encryptDocument(content: Uint8Array, mime: string, session: VaultSession) {
+export async function encryptDocument(
+  content: Uint8Array,
+  mime: string,
+  session: VaultSession,
+  recordId: string = crypto.randomUUID(),
+) {
   if (!content.length || content.length > 10 * 1024 * 1024)
     throw new Error("Choose a document up to 10 MB.");
   const key = crypto.getRandomValues(new Uint8Array(32));
   const manifest: Manifest = {
     version: 1,
-    record_id: crypto.randomUUID(),
+    record_id: recordId,
     owner_id: session.userId,
     owner_wallet: session.contents.evmAddress,
     owner_public_key: session.contents.x25519PublicKeyB64,

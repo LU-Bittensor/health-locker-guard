@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { epicRequest } from "@/lib/external-import";
+import { loadEpicRecords } from "@/lib/external-import";
 
 const categories = [
   ["all", "All"],
@@ -46,7 +46,7 @@ export function EpicRecords() {
     let active = true;
     setLoading(true);
     setError("");
-    void epicRequest<EpicRecordPage>(`records?category=${category}&page=${page}`)
+    void loadEpicRecords(category, page)
       .then((result) => {
         if (active) setData(result);
       })
