@@ -1,6 +1,6 @@
 import type { AccessGrant, GrantRecord } from "@/lib/grant-api";
 
-/** Saved Epic reports are delivered by the authenticated API, not the wallet index. */
+/** Legacy Epic reports use the API; encrypted imports use the document wallet path. */
 export function sharingMode(records: Pick<GrantRecord, "id">[], walletRegistryConfigured: boolean) {
   if (!walletRegistryConfigured) return "api";
   const reports = records.filter((record) => record.id.startsWith("epic-import-"));

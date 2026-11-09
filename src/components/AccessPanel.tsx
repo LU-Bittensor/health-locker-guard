@@ -73,6 +73,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [recipient, setRecipient] = useState("");
   const [scope, setScope] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -108,6 +109,9 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     setUploadsConfigured(health.document_uploads_configured !== false);
     setUsers(nextUsers);
     setRecords(nextRecords);
+    setSelectedIds((current) =>
+      current.filter((id) => nextRecords.some((record) => record.id === id)),
+    );
     setScope(
       (current) =>
         current ||
@@ -150,7 +154,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   }
 
   async function grantAccess() {
-    const selected = records.filter((record) => scope === "All records" || record.kind === scope);
+    const selected = records.filter((record) => selectedIds.includes(record.id));
     if (!selected.length) {
       setMessage("No records selected to grant.");
       return;
@@ -444,15 +448,14 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           </p>
           {!localGrantDemo && registryConfigured() && (
             <p className="text-mut">
-              Uploaded documents use wallet-signed sharing. Saved Epic reports use the server's
-              access controls so recipients can open the report. Share these record types
-              separately.
+              Encrypted Epic imports and uploaded documents use your vault to share access. Legacy
+              Epic reports use server access controls and must be shared separately.
             </p>
           )}
           {!uploadsConfigured && (
             <p className="text-mut">
-              Uploaded document storage is not configured here. You can still share saved Epic
-              import reports.
+              Uploaded document storage is not configured here. Existing legacy Epic reports may
+              still be available. New encrypted imports require document storage to be configured.
             </p>
           )}
           {chainEnabled && (
@@ -483,7 +486,10 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 id="grant-scope"
                 className={field}
                 value={scope}
-                onChange={(event) => setScope(event.target.value)}
+                onChange={(event) => {
+                  setScope(event.target.value);
+                  setSelectedIds([]);
+                }}
                 disabled={busy}
               >
                 <option>All records</option>
@@ -492,16 +498,36 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
                 ))}
               </select>
               <p className="text-mut">
-                Shares each matching record separately. Each recipient gets a separate credential in
-                the shared registry when blockchain mode is enabled.
+                Choose the saved records you want this recipient to receive. Later imports are
+                separate snapshots and are never added to an existing grant.
               </p>
               <div className="space-y-2 rounded-md border border-line p-3">
-                <p className="font-medium">Content included in this grant</p>
+                <p className="font-medium">
+                  Choose content to share ({selectedIds.length} selected)
+                </p>
                 {records
                   .filter((record) => scope === "All records" || record.kind === scope)
                   .map((record) => (
                     <div key={record.id} className="space-y-1">
-                      <p className="break-words">{record.name}</p>
+                      <label className="flex items-start gap-2 break-words">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(record.id)}
+                          disabled={busy}
+                          onChange={(event) =>
+                            setSelectedIds((current) =>
+                              event.target.checked
+                                ? [...current, record.id]
+                                : current.filter((id) => id !== record.id),
+                            )
+                          }
+                        />
+                        <span>{record.name}</span>
+                      </label>
+                      <p className="text-mut">
+                        {record.kind}
+                        {record.client_encrypted ? " · Encrypted" : ""}
+                      </p>
                       {record.share_note && <p className="text-mut">{record.share_note}</p>}
                       {record.has_document && (
                         <button
@@ -517,10 +543,10 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               </div>
               <button
                 className={`${button} w-full border-aurora/40 text-aurora`}
-                disabled={busy || !recipient}
+                disabled={busy || !recipient || !selectedIds.length}
                 onClick={() => void perform(grantAccess)}
               >
-                {busy ? "Working…" : "Grant"}
+                {busy ? "Working…" : `Grant ${selectedIds.length} selected record(s)`}
               </button>
             </div>
           ) : (

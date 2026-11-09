@@ -75,6 +75,9 @@ export function EpicRecords() {
         <div>
           <h2 className="font-semibold">Imported Epic records</h2>
           <p className="mt-1 text-sm text-mut">Your latest saved Epic Sandbox import</p>
+          <Link to="/access" className="mt-2 inline-block text-sm text-aurora underline">
+            Share a saved import
+          </Link>
         </div>
         <div className="flex items-center gap-3 text-sm">
           <button

@@ -1,3 +1,4 @@
+import { epicPreview } from "@/lib/epic-preview";
 import { useEffect, useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { uploadDocument, viewDocument, type GrantRecord } from "@/lib/grant-api";
@@ -116,6 +117,8 @@ export function DocumentViewer({
   } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    setPreview(null);
+    setError("");
     const controller = new AbortController();
     let url: string | undefined;
     async function load() {
@@ -127,7 +130,11 @@ export function DocumentViewer({
       const text = type === "text/plain" ? await blob.text() : undefined;
       if (controller.signal.aborted) return;
       url = URL.createObjectURL(blob);
-      setPreview({ url, type, text });
+      setPreview({
+        url,
+        type,
+        text: text && record.kind === "Epic import" ? epicPreview(text) : text,
+      });
     }
     void load().catch((cause: unknown) => {
       if (!controller.signal.aborted)
@@ -137,7 +144,7 @@ export function DocumentViewer({
       controller.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [record.id, demoUser]);
+  }, [record.id, record.kind, demoUser]);
 
   return (
     <Dialog
