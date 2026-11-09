@@ -66,6 +66,7 @@ export function AccessPanel() {
 function AccountGrants({ demoUser }: { demoUser: string }) {
   const [chainEnabled, setChainEnabled] = useState(false);
   const [uploadsConfigured, setUploadsConfigured] = useState(true);
+  const [storageBackend, setStorageBackend] = useState("");
   const [viewing, setViewing] = useState<GrantRecord | null>(null);
   const [me, setMe] = useState<GrantUser | null>(null);
   const [users, setUsers] = useState<GrantUser[]>([]);
@@ -93,7 +94,11 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
       grantRequest<GrantUser[]>("/users", demoUser),
       grantRequest<GrantRecord[]>("/records", demoUser),
       grantRequest<AccessGrant[]>("/grants", demoUser),
-      grantRequest<{ chain: boolean; document_uploads_configured?: boolean }>("/health", demoUser),
+      grantRequest<{
+        chain: boolean;
+        document_uploads_configured?: boolean;
+        document_storage_backend?: string;
+      }>("/health", demoUser),
     ]);
     if (!mounted.current) return;
     setMe(account);
@@ -107,6 +112,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     }
     setChainEnabled(health.chain);
     setUploadsConfigured(health.document_uploads_configured !== false);
+    setStorageBackend(health.document_storage_backend ?? "");
     setUsers(nextUsers);
     setRecords(nextRecords);
     setSelectedIds((current) =>
@@ -162,7 +168,9 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     const granteeUser = users.find((user) => user.id === recipient);
     if (!granteeUser?.wallet) throw new Error("Recipient must enroll a vault wallet first.");
 
-    if (sharingMode(selected, !localGrantDemo && registryConfigured()) === "wallet") {
+    if (
+      sharingMode(selected, !localGrantDemo && chainEnabled && registryConfigured()) === "wallet"
+    ) {
       const session = getVaultSession();
       if (!session || session.userId !== me?.id)
         throw new Error("Unlock your vault to sign grant transactions.");
@@ -446,10 +454,16 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
               ? "Server access control · blockchain verification is on"
               : "Server access control · blockchain verification is off"}
           </p>
-          {!localGrantDemo && registryConfigured() && (
+          {!localGrantDemo && chainEnabled && registryConfigured() && (
             <p className="text-mut">
               Encrypted Epic imports and uploaded documents use your vault to share access. Legacy
               Epic reports use server access controls and must be shared separately.
+            </p>
+          )}
+          {storageBackend === "local" && (
+            <p className="text-mut">
+              Documents are stored encrypted on this computer. Keep the local API running so
+              recipients can open shared records.
             </p>
           )}
           {!uploadsConfigured && (

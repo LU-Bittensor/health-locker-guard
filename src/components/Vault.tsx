@@ -92,7 +92,10 @@ function Records({
         localGrantDemo
           ? Promise.resolve(demoUser === "patient" ? "patient" : "provider")
           : fetchRole(),
-        grantRequest<{ document_uploads_configured?: boolean }>("/health", demoUser),
+        grantRequest<{ chain: boolean; document_uploads_configured?: boolean }>(
+          "/health",
+          demoUser,
+        ),
       ]);
       const visible = new Map<string, VisibleRecord>();
       if (!sharedOnly)
@@ -125,7 +128,7 @@ function Records({
       }
 
       // Fold AccessGrantSet discoveries into the same Shared filter (no separate panel).
-      if (registryConfigured()) {
+      if (health.chain && registryConfigured()) {
         if (!vaultEvmAddress()) {
           if (!cancelled)
             setSharedHint("Unlock your vault to discover on-chain shares for your address.");
@@ -409,8 +412,8 @@ function Records({
         />
       )}
       <p className="text-xs text-mut">
-        Click a document name to view it. Use Shared for API and on-chain grants; manage sharing from
-        the access ledger.
+        Click a document name to view it. Use Shared for API and on-chain grants; manage sharing
+        from the access ledger.
       </p>
     </div>
   );
