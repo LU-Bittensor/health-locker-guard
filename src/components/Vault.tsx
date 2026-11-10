@@ -5,7 +5,7 @@ import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
 import { supabase } from "@/integrations/supabase/client";
-import { EpicRecords } from "@/components/EpicRecords";
+import { recordSource, type RecordSource } from "@/lib/record-source";
 import {
   fetchRecordMetadata,
   grantRequest,
@@ -78,6 +78,7 @@ function Records({
   const [sharedHint, setSharedHint] = useState("");
   const [uploadsConfigured, setUploadsConfigured] = useState(true);
   const [filter, setFilter] = useState<"all" | "owned" | "shared">(sharedOnly ? "shared" : "all");
+  const [source, setSource] = useState<"all" | RecordSource>("all");
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -200,7 +201,9 @@ function Records({
   const ownedCount = records.filter((record) => record.owned).length;
   const sharedCount = records.length - ownedCount;
   const filteredRecords = records.filter(
-    (record) => filter === "all" || (filter === "owned" ? record.owned : !record.owned),
+    (record) =>
+      (filter === "all" || (filter === "owned" ? record.owned : !record.owned)) &&
+      (source === "all" || recordSource(record) === source),
   );
 
   return (
@@ -216,10 +219,18 @@ function Records({
           <p className="mt-2 max-w-xl text-sm text-mut">
             {localGrantDemo
               ? "The demo records used for your access tests. Shared records appear while their grants are active."
-              : "Your saved records and records shared with your account."}
+              : "Your Epic imports, MediLink documents, and shared records in one place."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!localGrantDemo && !sharedOnly && !ownerId && (
+            <Link
+              to="/external-import"
+              className="rounded-lg border border-line px-4 py-2.5 text-sm"
+            >
+              Import from Epic
+            </Link>
+          )}
           {canUpload && !sharedOnly && !ownerId && (
             <button
               onClick={() => setUploadOpen(true)}
@@ -236,18 +247,17 @@ function Records({
           </Link>
         </div>
       </div>
-      {!localGrantDemo && !sharedOnly && !ownerId && <EpicRecords />}
       <section
-        aria-label="Documents and shared records"
+        aria-label="All saved records"
         className="overflow-hidden rounded-xl border border-line/70 bg-surface/70"
       >
         <h2 className="border-b border-line px-5 py-4 font-semibold">
-          Shareable reports and documents
+          {sharedOnly || ownerId ? "Shared records" : "All saved records"}
         </h2>
         {!uploadsConfigured && (
           <p className="border-b border-line px-5 py-3 text-sm text-mut">
-            Uploaded document storage is not configured here. Saved Epic import reports and reports
-            shared with you remain available.
+            Document storage is not configured here. Existing legacy Epic imports may still be
+            available. New encrypted uploads and imports require document storage.
           </p>
         )}
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
@@ -292,11 +302,30 @@ function Records({
             ))}
           </div>
         )}
+        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
+          <label htmlFor="record-source" className="text-sm text-mut">
+            Record source
+          </label>
+          <select
+            id="record-source"
+            value={source}
+            disabled={loading || !!error}
+            onChange={(event) => setSource(event.target.value as "all" | RecordSource)}
+            className="rounded-md border border-line bg-surface2 px-3 py-2 text-sm text-tx"
+          >
+            <option value="all">All sources</option>
+            <option value="epic">Epic imports</option>
+            <option value="medilink">MediLink records</option>
+          </select>
+          <p className="text-xs text-mut">
+            Each Epic import is a saved snapshot. Open it to review its clinical records.
+          </p>
+        </div>
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
             <p className="text-red-400">
               {error.includes("SUPABASE_")
-                ? "Document storage is not configured on this local server. Your imported Epic records above remain available."
+                ? "Document storage is not configured on this local server. Refresh after storage is configured to load your saved records."
                 : error}
             </p>
             <p className="text-mut">
@@ -311,19 +340,23 @@ function Records({
         ) : !loading && filteredRecords.length === 0 ? (
           <div className="p-8 text-center">
             <h2 className="font-medium">
-              {filter === "owned"
-                ? "No owned records"
-                : filter === "shared"
-                  ? "No shared records"
-                  : "No records yet"}
+              {source !== "all"
+                ? "No matching records"
+                : filter === "owned"
+                  ? "No owned records"
+                  : filter === "shared"
+                    ? "No shared records"
+                    : "No records yet"}
             </h2>
             <p className="mt-2 text-sm text-mut">
-              {filter === "owned"
-                ? "Records you own will appear here."
-                : filter === "shared"
-                  ? sharedHint ||
-                    "API grants and on-chain AccessGrantSet shares for your vault appear here."
-                  : "Records you own or that have been shared with you will appear here."}
+              {source !== "all"
+                ? "No records match this source and ownership filter. Choose All sources or another ownership filter."
+                : filter === "owned"
+                  ? "Records you own will appear here."
+                  : filter === "shared"
+                    ? sharedHint ||
+                      "API grants and on-chain AccessGrantSet shares for your vault appear here."
+                    : "Records you own or that have been shared with you will appear here."}
             </p>
             <Link to="/access" className="mt-4 inline-block text-sm text-aurora">
               Open access ledger →
@@ -341,7 +374,7 @@ function Records({
                 <thead className="border-b border-line/50 text-xs uppercase tracking-wide text-mut">
                   <tr>
                     <th className="px-5 py-3 font-medium">Record</th>
-                    <th className="px-5 py-3 font-medium">Record ID</th>
+                    <th className="px-5 py-3 font-medium">Source</th>
                     <th className="px-5 py-3 font-medium">Access</th>
                   </tr>
                 </thead>
@@ -375,8 +408,24 @@ function Records({
                           </div>
                         )}
                         <p className="mt-1 text-xs text-mut">{record.kind}</p>
+                        <details className="mt-2 text-xs text-mut">
+                          <summary>Record details</summary>
+                          <p className="mt-1 break-all font-mono">{record.id}</p>
+                          {record.created_at && (
+                            <p>Saved: {new Date(record.created_at).toLocaleString()}</p>
+                          )}
+                        </details>
                       </td>
-                      <td className="px-5 py-5 font-mono text-xs text-mut">{record.id}</td>
+                      <td className="px-5 py-5">
+                        <span className="rounded-full border border-line px-2.5 py-1 text-xs">
+                          {recordSource(record) === "epic" ? "Epic import" : "MediLink"}
+                        </span>
+                        <p className="mt-2 text-xs text-mut">
+                          {recordSource(record) === "epic"
+                            ? "Saved clinical snapshot"
+                            : "Saved record"}
+                        </p>
+                      </td>
                       <td className="px-5 py-5">
                         <span
                           className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${record.owned ? "border-sky-300/30 bg-sky-400/10 text-sky-300" : "border-violet-300/30 bg-violet-400/10 text-violet-300"}`}
@@ -412,8 +461,8 @@ function Records({
         />
       )}
       <p className="text-xs text-mut">
-        Click a document name to view it. Use Shared for API and on-chain grants; manage sharing
-        from the access ledger.
+        Open a record to preview its contents. Epic snapshots include their saved clinical details.
+        Manage sharing and revocation from the access ledger.
       </p>
     </div>
   );
