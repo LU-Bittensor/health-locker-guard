@@ -3,11 +3,18 @@ import { AccessPanel } from "@/components/AccessPanel";
 import { VaultLayout } from "@/components/VaultLayout";
 
 export const Route = createFileRoute("/access")({
+  validateSearch: (search: Record<string, unknown>): { record?: string | undefined } => ({
+    record:
+      typeof search["record"] === "string" && /^[a-zA-Z0-9_-]{1,200}$/.test(search["record"])
+        ? search["record"]
+        : undefined,
+  }),
   head: () => ({ meta: [{ title: "Access ledger — Medilink" }] }),
   component: AccessLedgerPage,
 });
 
 function AccessLedgerPage() {
+  const { record } = Route.useSearch();
   return (
     <VaultLayout>
       <div className="mx-auto max-w-3xl space-y-6">
@@ -20,7 +27,7 @@ function AccessLedgerPage() {
             Share records, check received access, and manage registry permissions.
           </p>
         </div>
-        <AccessPanel />
+        <AccessPanel initialRecordId={record} />
       </div>
     </VaultLayout>
   );

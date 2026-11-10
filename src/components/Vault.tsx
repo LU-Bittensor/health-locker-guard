@@ -5,6 +5,7 @@ import { fetchRole } from "@/lib/vault-data";
 import { VaultLayout } from "@/components/VaultLayout";
 import { useDemoAccount } from "@/lib/demo-account";
 import { supabase } from "@/integrations/supabase/client";
+import { filterRecords, recordPage, type RecordFilters } from "@/lib/record-filters";
 import { recordSource, type RecordSource } from "@/lib/record-source";
 import {
   fetchRecordMetadata,
@@ -79,6 +80,11 @@ function Records({
   const [uploadsConfigured, setUploadsConfigured] = useState(true);
   const [filter, setFilter] = useState<"all" | "owned" | "shared">(sharedOnly ? "shared" : "all");
   const [source, setSource] = useState<"all" | RecordSource>("all");
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("all");
+  const [sort, setSort] = useState<RecordFilters["sort"]>("newest");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -200,11 +206,17 @@ function Records({
 
   const ownedCount = records.filter((record) => record.owned).length;
   const sharedCount = records.length - ownedCount;
-  const filteredRecords = records.filter(
-    (record) =>
-      (filter === "all" || (filter === "owned" ? record.owned : !record.owned)) &&
-      (source === "all" || recordSource(record) === source),
-  );
+  const filteredRecords = filterRecords(records, { ownership: filter, source, kind, query, sort });
+  const paged = recordPage(filteredRecords, page, pageSize);
+  const kinds = [...new Set(records.map((record) => record.kind))].sort();
+  const resetFilters = () => {
+    setFilter(sharedOnly ? "shared" : "all");
+    setSource("all");
+    setKind("all");
+    setQuery("");
+    setSort("newest");
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -292,7 +304,10 @@ function Records({
                 type="button"
                 aria-pressed={filter === value}
                 disabled={loading || !!error}
-                onClick={() => setFilter(value)}
+                onClick={() => {
+                  setFilter(value);
+                  setPage(1);
+                }}
                 className={`rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurora disabled:opacity-50 ${
                   filter === value ? "border-current bg-surface2" : "border-line"
                 } ${value === "owned" ? "text-sky-300" : value === "shared" ? "text-violet-300" : "text-tx"}`}
@@ -310,7 +325,10 @@ function Records({
             id="record-source"
             value={source}
             disabled={loading || !!error}
-            onChange={(event) => setSource(event.target.value as "all" | RecordSource)}
+            onChange={(event) => {
+              setSource(event.target.value as "all" | RecordSource);
+              setPage(1);
+            }}
             className="rounded-md border border-line bg-surface2 px-3 py-2 text-sm text-tx"
           >
             <option value="all">All sources</option>
@@ -320,6 +338,70 @@ function Records({
           <p className="text-xs text-mut">
             Each Epic import is a saved snapshot. Open it to review its clinical records.
           </p>
+        </div>
+        <div className="grid gap-3 border-b border-line px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="space-y-1 text-xs text-mut">
+            <span>Search records</span>
+            <input
+              type="search"
+              value={query}
+              disabled={loading || !!error}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Name, tag, record ID or sender"
+              className="w-full rounded-md border border-line bg-surface2 px-3 py-2 text-sm text-tx"
+            />
+          </label>
+          <label className="space-y-1 text-xs text-mut">
+            <span>Record type</span>
+            <select
+              aria-label="Record type"
+              value={kind}
+              disabled={loading || !!error}
+              onChange={(event) => {
+                setKind(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-md border border-line bg-surface2 px-3 py-2 text-sm text-tx"
+            >
+              <option value="all">All record types</option>
+              {!kinds.includes(kind) && kind !== "all" && (
+                <option value={kind}>{kind} (unavailable)</option>
+              )}
+              {kinds.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-mut">
+            <span>Sort records</span>
+            <select
+              aria-label="Sort records"
+              value={sort}
+              disabled={loading || !!error}
+              onChange={(event) => {
+                setSort(event.target.value as RecordFilters["sort"]);
+                setPage(1);
+              }}
+              className="w-full rounded-md border border-line bg-surface2 px-3 py-2 text-sm text-tx"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">Name A–Z</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={loading || !!error}
+            onClick={resetFilters}
+            className="self-end rounded-md border border-line px-3 py-2 text-sm disabled:opacity-50"
+          >
+            Clear filters
+          </button>
         </div>
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
@@ -340,7 +422,7 @@ function Records({
         ) : !loading && filteredRecords.length === 0 ? (
           <div className="p-8 text-center">
             <h2 className="font-medium">
-              {source !== "all"
+              {source !== "all" || query.trim() || kind !== "all"
                 ? "No matching records"
                 : filter === "owned"
                   ? "No owned records"
@@ -349,8 +431,8 @@ function Records({
                     : "No records yet"}
             </h2>
             <p className="mt-2 text-sm text-mut">
-              {source !== "all"
-                ? "No records match this source and ownership filter. Choose All sources or another ownership filter."
+              {source !== "all" || query.trim() || kind !== "all"
+                ? "No records match your filters. Clear filters to see the available records."
                 : filter === "owned"
                   ? "Records you own will appear here."
                   : filter === "shared"
@@ -376,10 +458,11 @@ function Records({
                     <th className="px-5 py-3 font-medium">Record</th>
                     <th className="px-5 py-3 font-medium">Source</th>
                     <th className="px-5 py-3 font-medium">Access</th>
+                    <th className="px-5 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/50">
-                  {filteredRecords.map((record) => (
+                  {paged.records.map((record) => (
                     <tr
                       key={`${record.ownerId}:${record.id}`}
                       className={record.owned ? "bg-sky-400/5" : "bg-violet-400/5"}
@@ -436,12 +519,77 @@ function Records({
                           <p className="mt-1 text-xs text-mut">From {record.ownerName}</p>
                         )}
                       </td>
+                      <td className="px-5 py-5">
+                        <div className="flex flex-wrap gap-2">
+                          {record.has_document && (
+                            <button
+                              onClick={() => setViewing(record)}
+                              className="rounded-md border border-line px-3 py-1.5 text-xs"
+                              aria-label={`Open ${record.name}`}
+                            >
+                              Open
+                            </button>
+                          )}
+                          <Link
+                            to="/access"
+                            search={record.owned ? { record: record.id } : {}}
+                            aria-label={`${record.owned ? "Share" : "View access for"} ${record.name}`}
+                            className="rounded-md border border-line px-3 py-1.5 text-xs text-aurora"
+                          >
+                            {record.owned ? "Share" : "View access"}
+                          </Link>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )
+        )}
+        {!error && !loading && filteredRecords.length > 0 && (
+          <nav
+            aria-label="Record pages"
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 text-sm"
+          >
+            <label className="flex items-center gap-2 text-mut">
+              Records per page
+              <select
+                aria-label="Records per page"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-md border border-line bg-surface2 px-2 py-1 text-tx"
+              >
+                {[10, 25, 50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span role="status">
+              Page {paged.page} of {paged.pages} · {filteredRecords.length} records
+            </span>
+            <div className="flex gap-2">
+              <button
+                disabled={paged.page <= 1}
+                onClick={() => setPage(paged.page - 1)}
+                className="rounded-md border border-line px-3 py-1.5 disabled:opacity-50"
+              >
+                Previous page
+              </button>
+              <button
+                disabled={paged.page >= paged.pages}
+                onClick={() => setPage(paged.page + 1)}
+                className="rounded-md border border-line px-3 py-1.5 disabled:opacity-50"
+              >
+                Next page
+              </button>
+            </div>
+          </nav>
         )}
       </section>
       {uploadOpen && (

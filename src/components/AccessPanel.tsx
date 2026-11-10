@@ -31,7 +31,7 @@ import {
 const field = "w-full rounded-md border border-line bg-surface2 px-2.5 py-2 text-[12px] text-tx";
 const button = "rounded-md border border-line px-2.5 py-1.5 text-[12px] disabled:opacity-40";
 
-export function AccessPanel() {
+export function AccessPanel({ initialRecordId }: { initialRecordId?: string | undefined }) {
   const { demoUser } = useDemoAccount();
   const [account, setAccount] = useState<string | null>(null);
   const [checking, setChecking] = useState(!localGrantDemo);
@@ -57,13 +57,23 @@ export function AccessPanel() {
           Sign in to manage access
         </Link>
       ) : (
-        <AccountGrants key={account ?? demoUser} demoUser={demoUser} />
+        <AccountGrants
+          key={`${account ?? demoUser}:${initialRecordId ?? ""}`}
+          demoUser={demoUser}
+          initialRecordId={initialRecordId}
+        />
       )}
     </section>
   );
 }
 
-function AccountGrants({ demoUser }: { demoUser: string }) {
+function AccountGrants({
+  demoUser,
+  initialRecordId,
+}: {
+  demoUser: string;
+  initialRecordId?: string | undefined;
+}) {
   const [chainEnabled, setChainEnabled] = useState(false);
   const [uploadsConfigured, setUploadsConfigured] = useState(true);
   const [storageBackend, setStorageBackend] = useState("");
@@ -73,8 +83,10 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
   const [records, setRecords] = useState<GrantRecord[]>([]);
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [recipient, setRecipient] = useState("");
-  const [scope, setScope] = useState("");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [scope, setScope] = useState(initialRecordId ? "All records" : "");
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    initialRecordId ? [initialRecordId] : [],
+  );
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -115,6 +127,9 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
     setStorageBackend(health.document_storage_backend ?? "");
     setUsers(nextUsers);
     setRecords(nextRecords);
+    if (initialRecordId && !nextRecords.some((record) => record.id === initialRecordId)) {
+      setMessage("That record is not in your owned records. Only owners can share a record.");
+    }
     setSelectedIds((current) =>
       current.filter((id) => nextRecords.some((record) => record.id === id)),
     );
@@ -126,7 +141,7 @@ function AccountGrants({ demoUser }: { demoUser: string }) {
           : "All records"),
     );
     setGrants(nextGrants);
-  }, [demoUser]);
+  }, [demoUser, initialRecordId]);
 
   useEffect(() => {
     mounted.current = true;
