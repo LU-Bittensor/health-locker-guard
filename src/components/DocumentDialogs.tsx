@@ -1,3 +1,5 @@
+import { RecordTagPicker } from "@/components/RecordTagPicker";
+import { serializeRecordTags } from "@/lib/record-tags";
 import { epicPreview } from "@/lib/epic-preview";
 import { useEffect, useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -17,7 +19,7 @@ export function UploadDocumentDialog({
   onUploaded: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -31,7 +33,7 @@ export function UploadDocumentDialog({
     setBusy(true);
     setError("");
     try {
-      await uploadDocument(file, tags, demoUser);
+      await uploadDocument(file, serializeRecordTags(tags), demoUser);
       onUploaded();
       onOpenChange(false);
     } catch (cause) {
@@ -48,7 +50,16 @@ export function UploadDocumentDialog({
         if (!busy) onOpenChange(value);
       }}
     >
-      <DialogContent className="border-line bg-ink text-tx">
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto border-line bg-ink text-tx"
+        onEscapeKeyDown={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-tag-picker-open="true"]')
+          )
+            event.preventDefault();
+        }}
+      >
         <DialogTitle>Upload document</DialogTitle>
         <DialogDescription>
           Choose a PDF, PNG, JPEG, or text file up to 10 MB. Unlock your vault first. New documents
@@ -67,22 +78,11 @@ export function UploadDocumentDialog({
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />
           </div>
-          <div className="space-y-2">
-            <label htmlFor="document-tags">Tags</label>
-            <input
-              id="document-tags"
-              value={tags}
-              maxLength={1000}
-              disabled={busy}
-              placeholder="Lab results, annual checkup"
-              className={fieldClass}
-              onChange={(event) => setTags(event.target.value)}
-              aria-describedby="tags-help"
-            />
-            <p id="tags-help" className="text-xs text-mut">
-              Separate tags with commas. Up to 20 tags, 50 characters each.
-            </p>
-          </div>
+          <RecordTagPicker value={tags} onChange={setTags} disabled={busy} />
+          <p className="text-xs text-mut">
+            Categories are optional organization labels. They accompany record metadata visible to
+            the server and authorized recipients; they do not change sharing permissions.
+          </p>
           {error && (
             <p role="alert" className="text-sm text-red-400">
               {error}

@@ -1,3 +1,4 @@
+import { matchesCategories } from "./record-tags";
 import type { GrantRecord } from "./grant-api";
 import { recordSource, type RecordSource } from "./record-source";
 
@@ -5,6 +6,7 @@ export type RecordFilters = {
   ownership: "all" | "owned" | "shared";
   source: "all" | RecordSource;
   kind: string;
+  categories?: string[];
   query: string;
   sort: "newest" | "oldest" | "name";
 };
@@ -20,6 +22,7 @@ export function filterRecords<T extends SearchableRecord>(
     if (filters.ownership !== "all" && r.owned !== (filters.ownership === "owned")) return false;
     if (filters.source !== "all" && recordSource(r) !== filters.source) return false;
     if (filters.kind !== "all" && r.kind !== filters.kind) return false;
+    if (!matchesCategories(r.tags ?? [], filters.categories ?? [])) return false;
     const text = [r.name, r.id, r.kind, r.ownerName, ...(r.tags ?? [])]
       .join(" ")
       .toLocaleLowerCase();

@@ -1,3 +1,4 @@
+import { RecordTagPicker } from "@/components/RecordTagPicker";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { DocumentViewer, UploadDocumentDialog } from "@/components/DocumentDialogs";
@@ -81,6 +82,7 @@ function Records({
   const [filter, setFilter] = useState<"all" | "owned" | "shared">(sharedOnly ? "shared" : "all");
   const [source, setSource] = useState<"all" | RecordSource>("all");
   const [query, setQuery] = useState("");
+  const [categories, setCategories] = useState<string[]>([]);
   const [kind, setKind] = useState("all");
   const [sort, setSort] = useState<RecordFilters["sort"]>("newest");
   const [page, setPage] = useState(1);
@@ -206,13 +208,21 @@ function Records({
 
   const ownedCount = records.filter((record) => record.owned).length;
   const sharedCount = records.length - ownedCount;
-  const filteredRecords = filterRecords(records, { ownership: filter, source, kind, query, sort });
+  const filteredRecords = filterRecords(records, {
+    ownership: filter,
+    source,
+    kind,
+    query,
+    sort,
+    categories,
+  });
   const paged = recordPage(filteredRecords, page, pageSize);
   const kinds = [...new Set(records.map((record) => record.kind))].sort();
   const resetFilters = () => {
     setFilter(sharedOnly ? "shared" : "all");
     setSource("all");
     setKind("all");
+    setCategories([]);
     setQuery("");
     setSort("newest");
     setPage(1);
@@ -403,6 +413,22 @@ function Records({
             Clear filters
           </button>
         </div>
+        <div className="border-b border-line px-5 py-3">
+          <RecordTagPicker
+            label="Filter by categories"
+            value={categories}
+            onChange={(value) => {
+              setCategories(value);
+              setPage(1);
+            }}
+            disabled={loading || !!error}
+            existingTags={records.flatMap((record) => record.tags ?? [])}
+          />
+          <p className="mt-2 text-xs text-mut">
+            Matches any selected category, combined with the other filters. Existing custom tags
+            remain available.
+          </p>
+        </div>
         {error ? (
           <div role="alert" className="space-y-2 p-6 text-sm">
             <p className="text-red-400">
@@ -422,7 +448,7 @@ function Records({
         ) : !loading && filteredRecords.length === 0 ? (
           <div className="p-8 text-center">
             <h2 className="font-medium">
-              {source !== "all" || query.trim() || kind !== "all"
+              {source !== "all" || query.trim() || kind !== "all" || categories.length > 0
                 ? "No matching records"
                 : filter === "owned"
                   ? "No owned records"
@@ -431,7 +457,7 @@ function Records({
                     : "No records yet"}
             </h2>
             <p className="mt-2 text-sm text-mut">
-              {source !== "all" || query.trim() || kind !== "all"
+              {source !== "all" || query.trim() || kind !== "all" || categories.length > 0
                 ? "No records match your filters. Clear filters to see the available records."
                 : filter === "owned"
                   ? "Records you own will appear here."
