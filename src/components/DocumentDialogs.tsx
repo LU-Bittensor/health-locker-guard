@@ -138,8 +138,6 @@ export function DocumentViewer({
   } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    setPreview(null);
-    setError("");
     const controller = new AbortController();
     let url: string | undefined;
     setCanDownload(false);

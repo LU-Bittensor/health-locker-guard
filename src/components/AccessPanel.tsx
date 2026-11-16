@@ -83,6 +83,7 @@ function AccountGrants({
   const [records, setRecords] = useState<GrantRecord[]>([]);
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [recipient, setRecipient] = useState("");
+  const [permission, setPermission] = useState<"preview" | "download">("preview");
   const [scope, setScope] = useState(initialRecordId ? "All records" : "");
   const [selectedIds, setSelectedIds] = useState<string[]>(
     initialRecordId ? [initialRecordId] : [],
@@ -182,13 +183,6 @@ function AccountGrants({
     }
     const granteeUser = users.find((user) => user.id === recipient);
     if (!granteeUser?.wallet) throw new Error("Recipient must enroll a vault wallet first.");
-
-    // Set the level before granting access; failure must not create a broader share.
-    for (const record of selected) {
-      await grantRequest(`/records/${encodeURIComponent(record.id)}/permission`, demoUser, {
-        method: "PUT", body: JSON.stringify({ recipient_id: recipient, level: permission }),
-      });
-    }
 
     // Set the level before granting access; failure must not create a broader share.
     for (const record of selected) {
