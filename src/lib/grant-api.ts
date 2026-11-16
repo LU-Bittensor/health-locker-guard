@@ -42,6 +42,7 @@ export type AccessGrant = {
   owner_name: string;
   recipient_id: string;
   recipient_name: string;
+  permission?: "preview" | "download";
   scope: string;
   record_name: string;
   contract_address: string | null;
@@ -201,7 +202,7 @@ export async function shareDocumentKey(recordId: string, recipient: GrantUser, d
   }
 }
 
-export async function viewDocument(id: string, demoUser: string, signal: AbortSignal) {
+export async function viewDocument(id: string, demoUser: string, signal: AbortSignal, download = false) {
   const info = await grantRequest<EncryptionInfo & { client_encrypted: boolean }>(
     `/records/${encodeURIComponent(id)}/encryption`,
     demoUser,
@@ -220,7 +221,7 @@ export async function viewDocument(id: string, demoUser: string, signal: AbortSi
     }
   }
   const response = await authenticatedRequest(
-    `/records/${encodeURIComponent(id)}/document`,
+    `/records/${encodeURIComponent(id)}/${download ? "download" : "document"}`,
     demoUser,
     { method: "POST", signal },
   );

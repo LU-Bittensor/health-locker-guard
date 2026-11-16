@@ -183,6 +183,20 @@ function AccountGrants({
     const granteeUser = users.find((user) => user.id === recipient);
     if (!granteeUser?.wallet) throw new Error("Recipient must enroll a vault wallet first.");
 
+    // Set the level before granting access; failure must not create a broader share.
+    for (const record of selected) {
+      await grantRequest(`/records/${encodeURIComponent(record.id)}/permission`, demoUser, {
+        method: "PUT", body: JSON.stringify({ recipient_id: recipient, level: permission }),
+      });
+    }
+
+    // Set the level before granting access; failure must not create a broader share.
+    for (const record of selected) {
+      await grantRequest(`/records/${encodeURIComponent(record.id)}/permission`, demoUser, {
+        method: "PUT", body: JSON.stringify({ recipient_id: recipient, level: permission }),
+      });
+    }
+
     if (
       sharingMode(selected, !localGrantDemo && chainEnabled && registryConfigured()) === "wallet"
     ) {
@@ -344,7 +358,27 @@ function AccountGrants({
       <h3 className="break-words text-lg font-semibold leading-snug sm:text-xl">
         {grant.record_name}
       </h3>
-      <p className="text-mut">{grant.scope}</p>
+      {grant.owner_id === me?.id && grant.status === "active" && (
+        <label className="block text-sm">Access level
+          <select className={field} value={grant.permission ?? "preview"} disabled={busy}
+            onChange={(event) => {
+              const level = event.target.value as "preview" | "download";
+              void perform(async () => {
+                for (const id of grant.record_ids) {
+                  await grantRequest(`/records/${encodeURIComponent(id)}/permission`, demoUser, {
+                    method: "PUT", body: JSON.stringify({ recipient_id: grant.recipient_id, level }),
+                  });
+                }
+                if (mounted.current) setGrants((current) => current.map((item) =>
+                  item.id === grant.id ? { ...item, permission: level } : item));
+              });
+            }}>
+            <option value="preview">Preview only</option>
+            <option value="download">Preview and download</option>
+          </select>
+        </label>
+      )}
+      <p className="text-mut">{grant.scope} · {grant.permission === "download" ? "Download allowed" : "Preview only"}</p>
       <dl className="grid gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs text-mut">Sender</dt>
@@ -510,6 +544,13 @@ function AccountGrants({
                   </option>
                 ))}
               </select>
+              <label htmlFor="grant-permission">Access level</label>
+              <select id="grant-permission" className={field} value={permission}
+                disabled={busy} onChange={(event) => setPermission(event.target.value as "preview" | "download")}>
+                <option value="preview">Preview — view only</option>
+                <option value="download">Download — view and save a copy</option>
+              </select>
+              <p className="text-mut">Neither level allows editing the original record.</p>
               <label htmlFor="grant-scope">Records to share</label>
               <select
                 id="grant-scope"

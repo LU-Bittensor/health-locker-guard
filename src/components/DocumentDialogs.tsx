@@ -3,7 +3,7 @@ import { serializeRecordTags } from "@/lib/record-tags";
 import { epicPreview } from "@/lib/epic-preview";
 import { useEffect, useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { uploadDocument, viewDocument, type GrantRecord } from "@/lib/grant-api";
+import { grantRequest, uploadDocument, viewDocument, type GrantRecord } from "@/lib/grant-api";
 
 const fieldClass = "w-full rounded-md border border-line bg-surface2 p-2 text-sm";
 
@@ -110,6 +110,27 @@ export function DocumentViewer({
   demoUser: string;
   onClose: () => void;
 }) {
+  const [canDownload, setCanDownload] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  async function download() {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      // Fetch again so revocation and permission changes are checked on each download.
+      const blob = await viewDocument(record.id, demoUser, new AbortController().signal, true);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = record.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setDownloadError(cause instanceof Error ? cause.message : "Download failed.");
+    } finally { setDownloading(false); }
+  }
   const [preview, setPreview] = useState<{
     url: string;
     type: string;
@@ -121,7 +142,15 @@ export function DocumentViewer({
     setError("");
     const controller = new AbortController();
     let url: string | undefined;
+    setCanDownload(false);
+    setPreview(null);
+    setError("");
+    setDownloadError("");
     async function load() {
+      const permission = await grantRequest<{ level: string }>(
+        `/records/${encodeURIComponent(record.id)}/permission`, demoUser, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setCanDownload(permission.level === "download");
       const blob = await viewDocument(record.id, demoUser, controller.signal);
       const type = blob.type.split(";")[0] ?? "";
       if (!["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(type)) {
@@ -155,7 +184,12 @@ export function DocumentViewer({
     >
       <DialogContent className="max-w-5xl border-line bg-ink text-tx">
         <DialogTitle className="break-all pr-6">{record.name}</DialogTitle>
-        <DialogDescription>Document preview</DialogDescription>
+        <DialogDescription>{canDownload ? "View and download a copy" : "Preview only"}</DialogDescription>
+        {canDownload && <button disabled={downloading || !preview} onClick={() => void download()}
+          className="rounded border border-line px-4 py-2 disabled:opacity-50">
+          {downloading ? "Downloading…" : "Download record"}
+        </button>}
+        {downloadError && <p role="alert" className="text-red-400">{downloadError}</p>}
         {error ? (
           <p role="alert" className="text-red-400">
             {error}
@@ -171,7 +205,7 @@ export function DocumentViewer({
         ) : (
           <iframe
             title={record.name}
-            src={preview.url}
+            src={`${preview.url}#toolbar=0`}
             className="h-[65vh] w-full rounded bg-white"
           />
         )}
